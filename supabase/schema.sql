@@ -60,8 +60,14 @@ create policy "anon insert reports" on reports for insert with check (true);
 
 alter table guardian_sessions enable row level security;
 create policy "anon insert sessions" on guardian_sessions for insert with check (true);
-create policy "uuid read sessions" on guardian_sessions for select using (true);
-create policy "uuid update sessions" on guardian_sessions for update using (true);
+-- NO select/update policy, deliberately. An earlier version had
+--   create policy "uuid read sessions" ... for select using (true)
+-- which reads like a capability gate but is not one: `using (true)` would let ANY
+-- client enumerate every live SOS session and read its pin. It was inert only
+-- because the anon role has no SELECT grant — luck, not design, and one
+-- `grant select to anon` away from leaking every active pin in the city.
+-- Nothing needs it: /api/sos reads with the service role, and the browser's only
+-- use of the anon key is the Realtime Broadcast, which does not consult RLS here.
 
 -- private storage: service-role uploads only, signed URLs to read ---------------
 insert into storage.buckets (id, name, public)

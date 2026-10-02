@@ -133,7 +133,7 @@ flowchart LR
 | 1.3 | Map screen: geolocate, heatmap layer colored by score | A | colors render on phone |
 | 1.4 | OSRM fetch of 3 candidate routes + segment score aggregation | C | each route gets a risk score |
 | 1.5 | Shortest-vs-safest comparison screen, safest highlighted | A | pick destination → 2 routes, scores shown |
-| 1.6 | Demo script draft (pitch template) | D | 2-min script exists |
+| 1.6 | Demo script draft (pitch template) | D | ✅ `docs/DEMO.md` — 2-min script, limits, Q&A |
 
 **Exit check:** *open app → colored map → enter destination → safest route wins* on a real phone. **Commit + deploy:** "core loop demoable".
 
@@ -240,11 +240,11 @@ Guardian phone numbers are stored **on the device**, so the SOS screen's Message
 | # | Task | Files | Done when |
 |---|---|---|---|
 | S.0 | Supabase project + schema + real seed from `buildCells()` | `.env.local`, `scripts/seed.mjs` | `/api/cells` returns `source: "db"` |
-| S.1 | Offline shell | `public/sw.js`, `src/components/sw-register.tsx`, `layout.tsx` | offline DevTools → shell renders, map still coloured from cached cells |
-| S.2 | Local-first outbox | `src/lib/idb.ts`, `src/lib/net.ts` | offline report flushes on reconnect; `node --test` green |
+| S.1 | Offline shell | `public/sw.js`, `src/components/bootstrap.tsx`, `layout.tsx` | offline DevTools → shell renders, map still coloured from cached cells |
+| S.2 | Local-first outbox | `src/lib/offline.ts` (idb + outbox + guardians + recordings) | offline report flushes on reconnect; `node --test` green |
 | S.3 | Panic button | `src/app/api/sos/route.ts`, `src/app/sos/page.tsx`, `map-view.tsx` | airplane mode → tap SOS → screen + siren + `tel:`/`sms:` all work; row lands after reconnect |
 | S.4 | Guardian layers | `src/lib/realtime.ts`, `src/app/guard/[id]/page.tsx`, `src/lib/map-style.ts` | phone A taps SOS → phone B pin moves; reload keeps last position |
-| S.6 | Web Push | `web-push` dep, VAPID, `push_subscriptions` (5th table) | ✅ code complete — **needs the S.6 SQL block run in Supabase**, then guardian opts in |
+| S.6 | Web Push | `web-push`, VAPID, `push_subscriptions` (5th table), `src/lib/push.ts` + `push-server.ts` | ✅ code complete — **needs the S.6 SQL block run in Supabase**, then guardian opts in |
 | S.7 | Auto-record → Storage | `src/app/sos/page.tsx` | file appears in the `recordings` bucket |
 | S.8 | Voice trigger | `src/app/sos/page.tsx` | "help me" fires SOS (online only) |
 
