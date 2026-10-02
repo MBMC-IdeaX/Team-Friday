@@ -253,3 +253,7 @@ Guardian phone numbers are stored **on the device**, so the SOS screen's Message
 **New env vars:** `NEXT_PUBLIC_SUPABASE_URL` · `SUPABASE_SERVICE_ROLE_KEY` (server-only) · `NEXT_PUBLIC_SUPABASE_ANON_KEY` (publishable — safe in the browser, used by the Realtime subscription).
 
 **Deferred by this plan:** report form UI (3.1) and the authorities dashboard (3.3/3.4). `push_subscriptions` is added to `supabase/schema.sql` when S.6 lands, not before — no speculative schema in the initial paste.
+
+**Progress:** S.0–S.4 **shipped**. DB is live and seeded (609 cells / 338 incidents / 40 reports; `/api/cells` reports `source: "db"`). S.5 needs no work — the S.1 SW cache already serves the grid offline. Remaining: S.6 Web Push, S.7 auto-record, S.8 voice.
+
+**Checks that exist:** `npm test` (`node --test`, drain ordering) · `scripts/check-sos.mjs` (12 API assertions) · `scripts/check-realtime.mjs` (anon→anon broadcast delivery). Offline behaviour needs a real device; it has not been verified on hardware yet.
