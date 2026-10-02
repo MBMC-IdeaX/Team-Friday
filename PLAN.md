@@ -151,10 +151,10 @@ flowchart LR
 ### Phase 3 — Reports + Authorities (h16–24)
 | # | Task | Owner | Done when |
 |---|---|---|---|
-| 3.1 | Anonymous report form (type, geo, photo, no login) + anon RLS insert | A+B | report inserts without auth |
-| 3.2 | Reports → score pipeline (recency decay λ≈7d) | C | submitting a report changes nearby score |
-| 3.3 | Dashboard: hotspot heatmap + top-10 risky cells | D | dashboard reads live tables |
-| 3.4 | Trend chart (reports/week) + "before/after" seeded story | D | chart renders with seeded data |
+| 3.1 | Anonymous report form (type, geo, photo, no login) + anon RLS insert | A+B | report inserts without auth — ✅ RLS + form + photo all working |
+| 3.2 | Reports → score pipeline (recency decay λ≈7d) | C | submitting a report changes nearby score — ✅ verified end to end |
+| 3.3 | Dashboard: hotspot heatmap + top-10 risky cells | D | dashboard reads live tables — ✅ `/dashboard` |
+| 3.4 | Trend chart (reports/week) + "before/after" seeded story | D | chart renders with seeded data — ✅ 12 weeks, no chart lib |
 
 **Exit check:** submit report → score changes → dashboard hotspot moves. **Commit:** "closed loop".
 
@@ -256,4 +256,6 @@ Guardian phone numbers are stored **on the device**, so the SOS screen's Message
 
 **Progress:** S.0–S.4 **shipped**. DB is live and seeded (609 cells / 338 incidents / 40 reports; `/api/cells` reports `source: "db"`). S.5 needs no work — the S.1 SW cache already serves the grid offline. Remaining: S.6 Web Push, S.7 auto-record, S.8 voice.
 
-**Checks that exist:** `npm test` (`node --test`, drain ordering) · `scripts/check-sos.mjs` (12 API assertions) · `scripts/check-realtime.mjs` (anon→anon broadcast delivery). Offline behaviour needs a real device; it has not been verified on hardware yet.
+**Checks that exist:** `npm test` (`node --test`, drain ordering) · `npm run check` (`/api/sos` 12 assertions · `/api/report` 7 · anon→anon broadcast) · `npm run reset:demo` (strip check/probe rows back out). Offline behaviour needs a real device; it has not been verified on hardware yet.
+
+**Phone testing:** serve a **production** build — `npm run build && npm start` — and open it over **HTTPS**. A LAN IP on plain http is not a secure context: Chrome refuses geolocation outright, `crypto.randomUUID` is undefined (this is what killed the SOS page, now fixed via `newId()`), and the service worker never registers. `cloudflared tunnel --url http://localhost:3000` gives a real https URL. Details in `docs/SETUP.md`.
