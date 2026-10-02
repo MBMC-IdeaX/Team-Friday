@@ -9,11 +9,15 @@
 const DB_NAME = "herguardian";
 const DB_VERSION = 1;
 
-export const STORES = ["outbox", "guardians"] as const;
+export const STORES = ["outbox", "guardians", "recordings"] as const;
 export type Store = (typeof STORES)[number];
 
 export type OutboxItem = { id?: number; url: string; body: string; createdAt: number };
 export type Guardian = { id?: number; name: string; phone: string };
+// Audio chunks, not one long file. MediaRecorder dies whenever the OS suspends
+// the page, and a single 20-minute blob that never got written is worth nothing —
+// a 10s chunk written before the suspension is evidence that survives.
+export type Recording = { id?: number; sessionId: string; blob: Blob; createdAt: number };
 
 let dbp: Promise<IDBDatabase> | null = null;
 
@@ -104,8 +108,41 @@ export async function flushOutbox(): Promise<number> {
   return sent.length;
 }
 
-// -- session id ---------------------------------------------------------------
+// -- recordings (S.7) ---------------------------------------------------------
 
+export const saveRecording = (sessionId: string, blob: Blob) =>
+  idbPut("recordings", { sessionId, blob, createdAt: Date.now() } satisfies Recording);
+export const pendingRecordings = () => idbAll<Recording>("recordings");
+export const dropRecording = (key: IDBValidKey) => idbDel("recordings", key);
+
+async function sendRecording(r: Recording): Promise<boolean> {
+  const form = new FormData();
+  form.set("sessionId", r.sessionId);
+  form.set("file", r.blob, "chunk.webm");
+  const res = await fetch("/api/recording", { method: "POST", body: form });
+  return res.ok;
+}
+
+/** Returns how many chunks are still on the device — the guardian view reads
+ *  this as "evidence not yet uploaded", which is the honest number to show. */
+export async function flushRecordings(): Promise<number> {
+  const items = (await pendingRecordings()).sort((a, b) => a.id! - b.id!);
+  let sent = 0;
+  for (const r of items) {
+    let ok = false;
+    try {
+      ok = await sendRecording(r);
+    } catch {
+      break; // offline: keep the chunks, try again on the next `online`
+    }
+    if (!ok) break;
+    if (r.id != null) await idbDel("recordings", r.id);
+    sent++;
+  }
+  return items.length - sent;
+}
+
+// -- session id ---------------------------------------------------------------
 // `crypto.randomUUID` is [SecureContext], so it is undefined on
 // http://192.168.x.x — which is exactly how a phone opens a LAN demo. The SOS
 // screen died on that, so build a v4 from getRandomValues instead, which is

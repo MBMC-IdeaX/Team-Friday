@@ -244,7 +244,12 @@ export default function MapView() {
           <path d="M8.5 12l2.5 2.5 4.5-5" stroke="#fff" strokeWidth="1.8" fill="none" />
         </svg>
         <span className="font-semibold">HerGuardian</span>
-        <span className="text-xs text-muted-foreground">tap map → safest route</span>
+        <button
+          onClick={() => router.push("/login")}
+          className="text-xs text-muted-foreground underline"
+        >
+          sign in (optional)
+        </button>
       </header>
 
       <div className="absolute bottom-3 left-3 z-10 w-[min(24rem,calc(100vw-1.5rem))] space-y-2">

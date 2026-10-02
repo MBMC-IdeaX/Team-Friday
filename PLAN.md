@@ -244,7 +244,7 @@ Guardian phone numbers are stored **on the device**, so the SOS screen's Message
 | S.2 | Local-first outbox | `src/lib/idb.ts`, `src/lib/net.ts` | offline report flushes on reconnect; `node --test` green |
 | S.3 | Panic button | `src/app/api/sos/route.ts`, `src/app/sos/page.tsx`, `map-view.tsx` | airplane mode → tap SOS → screen + siren + `tel:`/`sms:` all work; row lands after reconnect |
 | S.4 | Guardian layers | `src/lib/realtime.ts`, `src/app/guard/[id]/page.tsx`, `src/lib/map-style.ts` | phone A taps SOS → phone B pin moves; reload keeps last position |
-| S.6 | Web Push | `web-push` dep, VAPID, `push_subscriptions` (5th table) | guardian with the tab closed still gets the alert |
+| S.6 | Web Push | `web-push` dep, VAPID, `push_subscriptions` (5th table) | ✅ code complete — **needs the S.6 SQL block run in Supabase**, then guardian opts in |
 | S.7 | Auto-record → Storage | `src/app/sos/page.tsx` | file appears in the `recordings` bucket |
 | S.8 | Voice trigger | `src/app/sos/page.tsx` | "help me" fires SOS (online only) |
 
@@ -254,7 +254,11 @@ Guardian phone numbers are stored **on the device**, so the SOS screen's Message
 
 **Deferred by this plan:** report form UI (3.1) and the authorities dashboard (3.3/3.4). `push_subscriptions` is added to `supabase/schema.sql` when S.6 lands, not before — no speculative schema in the initial paste.
 
-**Progress:** S.0–S.4 **shipped**. DB is live and seeded (609 cells / 338 incidents / 40 reports; `/api/cells` reports `source: "db"`). S.5 needs no work — the S.1 SW cache already serves the grid offline. Remaining: S.6 Web Push, S.7 auto-record, S.8 voice.
+**Identity: optional login, deliberately no KYC.** A verified Aadhaar/DigiLocker identity linked to SOS timestamps and GPS fixes would build a searchable record of *when and where a woman was in danger* — a surveillance tool aimed at the victim. Every comparator in §3 avoids this, and DPDP Act 2023 requires purpose limitation. `/login` sends a Supabase magic link; nothing in the SOS path checks it, because someone in danger must never be asked to authenticate.
+
+**False SOS is fixed without identity:** one active session per device (`localStorage` + a status check). A second tap while a session is live *reuses* it and just updates the pin, instead of opening a new session and re-alerting every guardian. A rate limit that **blocked** a second tap could kill the one call that matters, so nothing is blocked.
+
+**Progress:** S.0–S.4, S.6 (code), S.7 **shipped**. DB is live and seeded (609 cells / 338 incidents / 40 reports; `/api/cells` reports `source: "db"`). S.5 needs no work — the S.1 SW cache already serves the grid offline. Remaining: S.8 voice (offline-dead by nature), plus running the S.6 SQL block.
 
 **Checks that exist:** `npm test` (`node --test`, drain ordering) · `npm run check` (`/api/sos` 12 assertions · `/api/report` 7 · anon→anon broadcast) · `npm run reset:demo` (strip check/probe rows back out). Offline behaviour needs a real device; it has not been verified on hardware yet.
 

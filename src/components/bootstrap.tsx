@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-import { flushOutbox } from "@/lib/offline";
+import { flushOutbox, flushRecordings } from "@/lib/offline";
 
 // App-startup wiring, mounted once from layout so /sos and /guard/[id] get it too.
 export default function Bootstrap() {
@@ -14,8 +14,14 @@ export default function Bootstrap() {
     }
 
     // Flush whatever the last session queued, then again on every reconnect.
-    flushOutbox().catch(() => {});
-    const onOnline = () => void flushOutbox().catch(() => {});
+    // Recordings matter most: they are the evidence, and the chunks are the only
+    // thing still on the device when the network comes back.
+    const flush = () => {
+      void flushOutbox().catch(() => {});
+      void flushRecordings().catch(() => {});
+    };
+    flush();
+    const onOnline = () => flush();
     addEventListener("online", onOnline);
     return () => removeEventListener("online", onOnline);
   }, []);

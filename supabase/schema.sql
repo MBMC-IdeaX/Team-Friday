@@ -67,3 +67,27 @@ create policy "uuid update sessions" on guardian_sessions for update using (true
 insert into storage.buckets (id, name, public)
 values ('recordings', 'recordings', false), ('report-photos', 'report-photos', false)
 on conflict (id) do nothing;
+
+-- Web Push (S.6) — run this after the base schema.
+-- A push subscription is an endpoint the browser hands us, not identity: it is
+-- tied to a browser install, not a person. guardian_id is a free-form label so a
+-- device can hold several guardians' endpoints; it is deliberately not a FK to
+-- any identity table, because the MVP has no auth and linking one would be the
+-- exact mistake PLAN.md §5 argues against.
+create table push_subscriptions (
+  id bigint generated always as identity primary key,
+  endpoint text not null unique,                     -- the push service URL
+  p256dh text not null,
+  auth text not null,
+  guardian_id text,                                  -- our own label
+  user_id uuid,                                      -- set only if the guardian chose to sign in
+  created_at timestamptz not null default now(),
+  last_ok_at timestamptz,
+  -- prune these: push services 404/410 a dead endpoint within days
+  fail_count smallint not null default 0
+);
+create index push_subscriptions_endpoint_idx on push_subscriptions (endpoint);
+
+-- No read policy: subscriptions are device endpoints, so the browser never needs
+-- to list them. All access is service-role from /api/push.
+alter table push_subscriptions enable row level security;

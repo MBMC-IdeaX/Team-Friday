@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { dbConfigured, supabase } from "@/lib/db";
+import { alertGuardians } from "@/lib/push-server";
 
 // The client generates the session uuid BEFORE it knows whether the network is
 // up, so the guardian link works offline and stays identical once the queued
@@ -38,6 +39,11 @@ export async function POST(req: NextRequest) {
     status: "active",
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Guardians are told last and the result is ignored on purpose: the session
+  // already exists, and an SOS must not wait on a push service.
+  void alertGuardians(id, lat, lng);
+
   return NextResponse.json({ ok: true, id });
 }
 

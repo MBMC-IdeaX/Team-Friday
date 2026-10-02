@@ -3,12 +3,26 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { listGuardians, newId, queueRequest, removeGuardian, saveGuardian, type Guardian } from "@/lib/offline";
+import {
+  flushRecordings,
+  listGuardians,
+  newId,
+  queueRequest,
+  removeGuardian,
+  saveGuardian,
+  saveRecording,
+  type Guardian,
+} from "@/lib/offline";
 import { joinSession } from "@/lib/realtime";
 
 // Primary emergency contact — dialed by the big red button.
 const EMERGENCY = "9817539373";
 const PIN_INTERVAL_MS = 5000;
+// chunked so a suspension keeps what came before, and capped so a forgotten
+// session cannot quietly fill the device
+const CHUNK_MS = 10_000;
+const MAX_REC_SEC = 15 * 60;
+const ACTIVE_KEY = "hg:active-session";
 const ORIGIN_FALLBACK = "";
 
 // Press order matters and is deliberate: the session is written to IndexedDB and
@@ -51,24 +65,54 @@ export default function SosPage() {
   const [geoError, setGeoError] = useState<string | null>(null);
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [sirenBlocked, setSirenBlocked] = useState(false);
+  const [recSec, setRecSec] = useState(0);
+  const [recNote, setRecNote] = useState<string | null>(null);
+  const [pendingChunks, setPendingChunks] = useState(0);
   const [elapsed, setElapsed] = useState(0);
 
   const sirenRef = useRef<{ stop: () => void } | null>(null);
+  const recRef = useRef<MediaRecorder | null>(null);
+  const recStreamRef = useRef<MediaStream | null>(null);
 
   // 1. fire — uuid first, local write second, network last. The id is published
   // to state only once the durable write lands, so "fired" means "persisted".
+  //
+  // One active session per device: a second tap while a session is live REUSES
+  // it rather than opening a new one. That is the false-SOS fix and it needs no
+  // identity at all — a panicking double-tap should not re-alert every guardian,
+  // and a rate limit that *blocked* a second tap could kill the one call that
+  // matters. The pin effect below keeps updating either way.
   useEffect(() => {
-    const id = newId();
-    const seed = { id, triggered_by: "tap", lat: 27.7172, lng: 85.324 };
-    void queueRequest("/api/sos", seed).then(() => setSessionId(id));
-    fetch("/api/sos", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(seed),
-    })
-      .then((r) => setPhase(r.ok ? "live" : "queued"))
-      .catch(() => setPhase("queued"));
+    let cancelled = false;
+    void (async () => {
+      const previous = localStorage.getItem(ACTIVE_KEY);
+      if (previous) {
+        const existing = await fetch(`/api/sos?id=${previous}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null);
+        if (!cancelled && existing?.session?.status === "active") {
+          setSessionId(previous);
+          setPhase("live");
+          return;
+        }
+      }
+      const id = newId();
+      const seed = { id, triggered_by: "tap", lat: 27.7172, lng: 85.324 };
+      await queueRequest("/api/sos", seed);
+      if (cancelled) return;
+      setSessionId(id);
+      localStorage.setItem(ACTIVE_KEY, id);
+      const res = await fetch("/api/sos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(seed),
+      }).catch(() => null);
+      if (!cancelled) setPhase(res?.ok ? "live" : "queued");
+    })();
     listGuardians().then(setGuardians).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // 2. stay alive + loud. The siren starts best-effort; the button reports and
@@ -100,6 +144,64 @@ export default function SosPage() {
       sirenRef.current?.stop();
     };
   }, []);
+
+  // 4. record — chunked, local-first, uploaded when possible. A 10s chunk that
+  // reached IndexedDB survives a page suspension; one long blob would not.
+  useEffect(() => {
+    if (!sessionId) return;
+    let stopped = false;
+
+    const start = async () => {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+        setRecNote("recording unsupported on this browser");
+        return;
+      }
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch {
+        setRecNote("microphone blocked — no recording");
+        return;
+      }
+      if (stopped) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      recStreamRef.current = stream;
+      const mime = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"].find((t) =>
+        MediaRecorder.isTypeSupported(t),
+      );
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      recRef.current = rec;
+      rec.ondataavailable = (e) => {
+        if (!e.data.size) return;
+        void saveRecording(sessionId, e.data).then(() => flushRecordings().then(setPendingChunks));
+      };
+      rec.start(CHUNK_MS);
+    };
+    void start();
+
+    const tick = setInterval(() => {
+      setRecSec((s) => {
+        // ponytail: hard cap — a session left open should not fill the device
+        if (s + 1 >= MAX_REC_SEC && recRef.current?.state === "recording") {
+          recRef.current.stop();
+        }
+        return s + 1;
+      });
+    }, 1000);
+
+    const upload = () => void flushRecordings().then(setPendingChunks);
+    addEventListener("online", upload);
+
+    return () => {
+      stopped = true;
+      clearInterval(tick);
+      removeEventListener("online", upload);
+      if (recRef.current?.state === "recording") recRef.current.stop();
+      recStreamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, [sessionId]);
 
   useEffect(() => {
     const t = setInterval(() => setElapsed((s) => s + 1), 1000);
@@ -175,6 +277,10 @@ export default function SosPage() {
 
   const end = async () => {
     sirenRef.current?.stop();
+    if (recRef.current?.state === "recording") recRef.current.stop();
+    recStreamRef.current?.getTracks().forEach((t) => t.stop());
+    localStorage.removeItem(ACTIVE_KEY);
+    await flushRecordings().catch(() => {});
     await fetch("/api/sos", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -207,6 +313,12 @@ export default function SosPage() {
       >
         {phase === "starting" && "Starting…"}
         {phase === "live" && "Guardians can see your live position."}
+        {phase === "live" && recSec > 2 && (
+          <span className="ml-2 text-red-300">
+            ● recording {String(Math.floor(recSec / 60)).padStart(2, "0")}:
+            {String(recSec % 60).padStart(2, "0")}
+          </span>
+        )}
         {phase === "queued" && "No signal — session saved on this phone, sending when back online."}
       </p>
 
@@ -263,6 +375,10 @@ export default function SosPage() {
         </div>
         <div className="font-mono text-muted-foreground">
           {sentAgo === null ? "pin not sent yet" : `pin sent ${sentAgo}s ago`}
+        </div>
+        <div className="font-mono text-muted-foreground">
+          audio: {recNote ?? (recSec > 0 ? `${recSec}s captured` : "starting…")}
+          {pendingChunks > 0 && ` · ${pendingChunks} chunk${pendingChunks === 1 ? "" : "s"} waiting to upload`}
         </div>
         {geoError && <div className="text-red-400">GPS: {geoError}</div>}
         <div className="truncate font-mono text-muted-foreground">session: {sessionId}</div>
