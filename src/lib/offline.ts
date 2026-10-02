@@ -104,6 +104,22 @@ export async function flushOutbox(): Promise<number> {
   return sent.length;
 }
 
+// -- session id ---------------------------------------------------------------
+
+// `crypto.randomUUID` is [SecureContext], so it is undefined on
+// http://192.168.x.x — which is exactly how a phone opens a LAN demo. The SOS
+// screen died on that, so build a v4 from getRandomValues instead, which is
+// available on insecure origins.
+export function newId(): string {
+  const c = globalThis.crypto;
+  if (typeof c?.randomUUID === "function") return c.randomUUID();
+  const b = c.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40; // version 4
+  b[8] = (b[8] & 0x3f) | 0x80; // variant 10
+  const hex = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 // -- guardians (stored on-device so SMS works with our whole stack offline) ---
 
 export const saveGuardian = (g: Guardian) => idbPut("guardians", g);

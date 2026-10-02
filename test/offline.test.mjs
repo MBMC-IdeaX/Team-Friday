@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { drain } from "../src/lib/offline.ts";
+import { drain, newId } from "../src/lib/offline.ts";
+
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 // The check for the one piece of non-trivial logic in the outbox: ordering and
 // stop-on-failure. If drain ever sends a later item past a failed earlier one,
@@ -43,4 +45,29 @@ test("drain preserves queue order, not object key order", async () => {
     return true;
   });
   assert.deepEqual(seen, [3, 1, 2], "drain does not sort; the caller owns order");
+});
+// The LAN-demo bug: crypto.randomUUID is undefined on insecure origins, and the
+// SOS screen died on that. newId() must produce a real v4 either way.
+test("newId returns a v4 uuid", () => {
+  for (let i = 0; i < 50; i++) assert.match(newId(), UUID_V4);
+});
+
+test("newId does not collide", () => {
+  const seen = new Set(Array.from({ length: 500 }, newId));
+  assert.equal(seen.size, 500);
+});
+
+test("newId falls back when randomUUID is unavailable", () => {
+  const real = globalThis.crypto.randomUUID;
+  try {
+    Object.defineProperty(globalThis.crypto, "randomUUID", {
+      value: undefined, configurable: true,
+    });
+    assert.equal(typeof crypto.randomUUID, "undefined", "precondition");
+    for (let i = 0; i < 50; i++) assert.match(newId(), UUID_V4);
+  } finally {
+    Object.defineProperty(globalThis.crypto, "randomUUID", {
+      value: real, configurable: true,
+    });
+  }
 });

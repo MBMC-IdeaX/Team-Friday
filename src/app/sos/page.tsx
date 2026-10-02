@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { listGuardians, queueRequest, removeGuardian, saveGuardian, type Guardian } from "@/lib/offline";
+import { listGuardians, newId, queueRequest, removeGuardian, saveGuardian, type Guardian } from "@/lib/offline";
 import { joinSession } from "@/lib/realtime";
 
 // Primary emergency contact — dialed by the big red button.
@@ -58,7 +58,7 @@ export default function SosPage() {
   // 1. fire — uuid first, local write second, network last. The id is published
   // to state only once the durable write lands, so "fired" means "persisted".
   useEffect(() => {
-    const id = crypto.randomUUID();
+    const id = newId();
     const seed = { id, triggered_by: "tap", lat: 27.7172, lng: 85.324 };
     void queueRequest("/api/sos", seed).then(() => setSessionId(id));
     fetch("/api/sos", {
@@ -192,6 +192,11 @@ export default function SosPage() {
           {String(elapsed % 60).padStart(2, "0")}
         </span>
       </header>
+
+      <p className="rounded-xl bg-black/70 px-3 py-2 text-xs text-muted-foreground backdrop-blur">
+        GPS, offline mode and guardian alerts need HTTPS. Over plain http you can
+        still call and text.
+      </p>
 
       <p
         className={`rounded-xl px-3 py-2 text-sm ${
