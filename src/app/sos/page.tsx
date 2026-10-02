@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { listGuardians, queueRequest, removeGuardian, saveGuardian, type Guardian } from "@/lib/offline";
+import { joinSession } from "@/lib/realtime";
 
 // CONFIRM PER DEPLOYMENT REGION — this is Nepal's police number.
 const EMERGENCY = "100";
@@ -105,10 +106,13 @@ export default function SosPage() {
     return () => clearInterval(t);
   }, []);
 
-  // 3. live pin, throttled; retries itself once the network returns
+  // 3. live pin, throttled; retries itself once the network returns. The DB
+  // write is the durable copy, the broadcast is the fast path for a guardian
+  // whose page is open right now.
   useEffect(() => {
     if (!sessionId) return;
     let last = 0;
+    const feed = joinSession(sessionId, () => {});
     const watch = navigator.geolocation.watchPosition(
       (pos) => {
         const lat = pos.coords.latitude;
@@ -118,6 +122,7 @@ export default function SosPage() {
         if (now - last < PIN_INTERVAL_MS) return;
         last = now;
         setSentAgo(0);
+        void feed.send({ lat, lng, at: now });
         fetch("/api/sos", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -129,7 +134,10 @@ export default function SosPage() {
       (err) => setGeoError(err.message),
       { enableHighAccuracy: true, maximumAge: 2000 },
     );
-    return () => navigator.geolocation.clearWatch(watch);
+    return () => {
+      navigator.geolocation.clearWatch(watch);
+      feed.leave();
+    };
   }, [sessionId]);
 
   useEffect(() => {

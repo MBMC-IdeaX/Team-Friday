@@ -35,37 +35,8 @@ type RoutesRes = {
 
 type Picked = { lat: number; lng: number };
 
-const CENTER: [number, number] = [85.324, 27.7172]; // Kathmandu demo city
-const BRAND = "#1b7a86";
+import { BRAND, CENTER, STYLE, scoreColor } from "@/lib/map-style";
 
-// OSM standard tiles: no API key, no watermark (hackathon demo traffic)
-const STYLE = {
-  version: 8 as const,
-  sources: {
-    osm: {
-      type: "raster" as const,
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: "© OpenStreetMap contributors",
-    },
-  },
-  layers: [
-    {
-      id: "osm",
-      type: "raster" as const,
-      source: "osm",
-      paint: {
-        // darken the light basemap so it fits the dark theme
-        "raster-brightness-max": 0.42,
-        "raster-saturation": -0.55,
-        "raster-contrast": 0.18,
-      } as Record<string, number>,
-    },
-  ],
-};
-
-const scoreColor = (s: number) => (s >= 70 ? "#22c55e" : s >= 45 ? "#eab308" : "#ef4444");
 const fmtTime = (sec: number) => `${Math.round(sec / 60)} min`;
 const fmtDist = (m: number) => `${(m / 1000).toFixed(1)} km`;
 const routeFc = (r?: Route) => ({
