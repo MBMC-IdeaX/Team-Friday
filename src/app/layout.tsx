@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import SwRegister from "@/components/sw-register";
 import "./globals.css";
 
 const inter = Inter({
@@ -12,6 +13,12 @@ export const metadata: Metadata = {
   description:
     "Predictive women's safety: real-time Safety Scores, safest routes, one-tap SOS.",
   manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "HerGuardian",
+    statusBarStyle: "black-translucent",
+  },
+  icons: { apple: "/apple-touch-icon.png" },
 };
 
 export const viewport: Viewport = {
@@ -23,7 +30,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`dark ${inter.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        <SwRegister />
+      </body>
     </html>
   );
 }
