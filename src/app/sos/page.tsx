@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { listGuardians, queueRequest, removeGuardian, saveGuardian, type Guardian } from "@/lib/offline";
 import { joinSession } from "@/lib/realtime";
 
-// CONFIRM PER DEPLOYMENT REGION — this is Nepal's police number.
-const EMERGENCY = "100";
+// Primary emergency contact — dialed by the big red button.
+const EMERGENCY = "9817539373";
 const PIN_INTERVAL_MS = 5000;
 const ORIGIN_FALLBACK = "";
 
@@ -210,7 +210,8 @@ export default function SosPage() {
           href={`tel:${EMERGENCY}`}
           className="rounded-xl bg-red-600 py-5 text-center text-2xl font-bold text-white"
         >
-          CALL {EMERGENCY}
+          CALL FOR HELP
+          <span className="block font-mono text-sm font-normal opacity-80">{EMERGENCY}</span>
         </a>
         <button
           onClick={share}
