@@ -11,6 +11,7 @@ import {
   type GeoJSONSource,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { useRouter } from "next/navigation";
 import { buildCells, scoreOf, type Cell } from "@/lib/safety";
 
 // Bundlers rewrite import.meta.url, so maplibre can't locate its worker file.
@@ -104,6 +105,7 @@ function RouteCard({ r, label, best }: { r: Route; label: string; best: boolean 
 }
 
 export default function MapView() {
+  const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MLMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
@@ -273,6 +275,12 @@ export default function MapView() {
       </header>
 
       <div className="absolute bottom-3 left-3 z-10 w-[min(24rem,calc(100vw-1.5rem))] space-y-2">
+        <button
+          onClick={() => router.push("/sos")}
+          className="w-full rounded-xl bg-red-600 py-4 text-center text-lg font-bold tracking-wide text-white"
+        >
+          SOS
+        </button>
         {!picked && (
           <div className="rounded-xl bg-black/70 px-4 py-3 text-sm backdrop-blur">
             Tap the map to set your destination.
