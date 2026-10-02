@@ -2,7 +2,7 @@
 
 **One-liner:** HerGuardian gives women a *predictive* safety layer: it scores where you are, routes you the safest way (not the shortest), and only then does the emergency stuff — SOS, live share, recording — with every user report feeding back into the score.
 
-Assumptions: 24–48h hackathon, team of 2–4, mobile-first PWA, fake/seeded data is fine (marked `// FAKE`).
+Assumptions: 36h hackathon, team of 4, mobile-first PWA, fake/seeded data is fine (marked `// FAKE`).
 
 ---
 
@@ -62,17 +62,18 @@ flowchart LR
 
 ---
 
-## 2. Implementation phases (48h)
+## 2. Implementation phases (overview — detailed checklist in §4)
+
+> §4 is the authoritative timeline. This table is the summary.
 
 | Phase | When | Deliverable |
 |---|---|---|
 | **0. Skeleton** | Hour 0–1 | Pitch, core flow (3–5 steps), AGENTS.md, agreed diagram, repo + deploy pipeline |
 | **1. Core loop** | Hour 1–8 | Map, seeded safety grid + score function, route scoring (shortest vs safest comparison screen) ← **the demo flow** |
-| **2. Emergency** | Hour 8–16 | One-tap SOS, live share + Guardian Mode via Realtime |
-| **3. Smart extras** | Hour 16–24 | Voice trigger, auto audio/video record → Storage, anonymous report form feeding the score |
-| **4. Authorities** | Hour 24–32 | Hotspot heatmap, trend charts, seeded "before/after" story |
-| **5. Polish** | Hour 32–45 | Impeccable critique, mobile-first fixes, seeded demo data, rehearse ×2 |
-| **Freeze** | Last 3h | Bug fixes only, deploy live, backup video |
+| **2. Emergency** | Hour 8–16 | One-tap SOS, live share + Guardian Mode via Realtime, voice, auto-record |
+| **3. Reports + Authorities** | Hour 16–24 | Anonymous report form feeding the score, hotspot heatmap, trend charts |
+| **4. Polish** | Hour 24–31 | Impeccable critique, mobile-first fixes, seeded demo data, rehearse ×2 |
+| **5. Freeze** | Hour 31–36 | Bug fixes only, deploy live, backup video |
 
 **Team split (4):** frontend-map · backend/Supabase · scoring+data seed · dashboard+pitch. One agent session per person, one branch each, commit after every working step.
 
@@ -96,6 +97,79 @@ flowchart LR
 2. **Dynamic vs static score.** Our score changes with time of day, fresh reports, lighting and crowd — Safetipin's is a survey result that goes stale.
 3. **Safest route ≠ shortest route.** Route-risk comparison is the visible "aha" for judges; most incumbents don't do it or do it statically.
 4. **Citizens feed authorities and vice versa** — anonymous reports crowd-source the model while the dashboard justifies infrastructure spend, a two-sided value prop no consumer app has.
-5. **It's buildable in 48h.** The differentiation is the scoring loop and routing UX, not infrastructure — hence PWA + Supabase instead of a native app we couldn't finish.
+5. **It's buildable in 36h.** The differentiation is the scoring loop and routing UX, not infrastructure — hence PWA + Supabase instead of a native app we couldn't finish.
 
 **Honest risk:** data availability (lighting/crowd aren't in OSM) — mitigate with public crime datasets (NCRB/data.gov.in, Kaggle) + POI-density proxy + seeded cells. Judges care that the *pipeline* is real and the weights are defensible.
+
+---
+
+## 4. Phased task plan (36h, 4 people) — authoritative timeline
+
+**Roles (one agent session + one branch each):**
+- **A — Frontend/Map:** PWA screens, Leaflet, UI
+- **B — Backend:** Supabase schema, auth, Realtime, Storage, API routes
+- **C — Scoring/Routing:** safety score fn, OSRM integration, seed data
+- **D — Emergency UX + Dashboard + Pitch:** SOS/voice/record, authorities page, demo script
+
+**Standing rules (from handbook):** fresh agent session per feature · one file = one owner · commit after every working step · merge to `main` often · fake data marked `// FAKE`.
+
+### Phase 0 — Skeleton (h0–1) · everyone
+| # | Task | Owner | Done when |
+|---|---|---|---|
+| 0.1 | Agree one-sentence pitch + 3–5 step core flow | all | written in AGENTS.md |
+| 0.2 | Scaffold Next.js + Tailwind + shadcn, PWA manifest | A | `npm run dev` renders shell |
+| 0.3 | Create Supabase project, wire env, magic-link auth | B | login works locally |
+| 0.4 | Vercel deploy pipeline + `dev`/`main` branches | B | live URL returns 200 |
+| 0.5 | Seed script stub + demo city chosen | C | `npm run seed` runs |
+
+**Exit check:** app deployed at live URL, everyone on their branch. **Commit:** "phase 0 skeleton deployed".
+
+### Phase 1 — Core loop (h1–8) ← *the demo flow*
+| # | Task | Owner | Done when |
+|---|---|---|---|
+| 1.1 | Tables: `safety_cells`, `incidents`, `reports` + seed ~500 cells | B+C | rows visible in Supabase |
+| 1.2 | Safety score function (weights: crime 40 / reports 25 / time 15 / lighting 10 / crowd 10) + `/api/score` | C | returns 0–100 for a lat/lng |
+| 1.3 | Map screen: geolocate, heatmap layer colored by score | A | colors render on phone |
+| 1.4 | OSRM fetch of 3 candidate routes + segment score aggregation | C | each route gets a risk score |
+| 1.5 | Shortest-vs-safest comparison screen, safest highlighted | A | pick destination → 2 routes, scores shown |
+| 1.6 | Demo script draft (pitch template) | D | 2-min script exists |
+
+**Exit check:** *open app → colored map → enter destination → safest route wins* on a real phone. **Commit + deploy:** "core loop demoable".
+
+### Phase 2 — Emergency (h8–16)
+| # | Task | Owner | Done when |
+|---|---|---|---|
+| 2.1 | `guardian_sessions` + Realtime channel for live pins | B | two browsers share a channel |
+| 2.2 | One-tap SOS flow: confirm → `sms:`/`tel:` links + guardian URL | A | SMS link opens guardian view |
+| 2.3 | Guardian live-tracking page (pin follows in real time) | A | pin moves phone A → phone B |
+| 2.4 | Voice trigger via Web Speech API ("help me" → SOS) | D | phrase fires SOS |
+| 2.5 | Auto audio/video record → Supabase Storage | D | file appears in Storage |
+
+**Exit check:** phone A taps SOS → phone B sees live pin + recording uploads. **Commit per feature.**
+
+### Phase 3 — Reports + Authorities (h16–24)
+| # | Task | Owner | Done when |
+|---|---|---|---|
+| 3.1 | Anonymous report form (type, geo, photo, no login) + anon RLS insert | A+B | report inserts without auth |
+| 3.2 | Reports → score pipeline (recency decay λ≈7d) | C | submitting a report changes nearby score |
+| 3.3 | Dashboard: hotspot heatmap + top-10 risky cells | D | dashboard reads live tables |
+| 3.4 | Trend chart (reports/week) + "before/after" seeded story | D | chart renders with seeded data |
+
+**Exit check:** submit report → score changes → dashboard hotspot moves. **Commit:** "closed loop".
+
+### Phase 4 — Polish (h24–31)
+- A: Impeccable critique + mobile-first fixes on the 3 main screens
+- C: reseed demo data so the demo *always* looks good
+- D: rehearse pitch ×2, record backup video (Brag plugin)
+- B: verify `.env` not in git, RLS policies, dead-end/error states
+- All: every diff reviewed
+
+**Exit check:** demo runs clean twice from the live URL. **Commit:** "demo ready".
+
+### Phase 5 — Freeze (h31–36)
+- Bug fixes only, no features · final deploy · `git status` clean · backup video saved · screenshots for the channel
+
+---
+
+**Critical path:** 1.2 → 1.4 → 1.5 (C then A) — everything else parallelizes.
+**Cut order if behind:** 3.4 chart → voice (2.4) → auto-record (2.5) → magic-link auth. Never cut: core loop + SOS.
