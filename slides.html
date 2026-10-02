@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Vibe Coding a Hackathon</title>
+<!-- ponytail: no deps, works offline. ←/→ or click to move, F for fullscreen. -->
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0d0e; color: #e6e6e6; font: 28px/1.4 system-ui, sans-serif; }
+  section { display: none; height: 100vh; box-sizing: border-box; padding: 6vh 8vw; flex-direction: column; justify-content: center; }
+  section.on { display: flex; }
+  h1 { font-size: 2.6em; margin: 0 0 .3em; }
+  h2 { font-size: 1.7em; margin: 0 0 .6em; color: #8fd3c7; }
+  .t { position: absolute; top: 3vh; right: 3vw; color: #555; font-size: .7em; }
+  li { margin: .35em 0; }
+  b { color: #fff; }
+  code, pre { font-family: ui-monospace, monospace; background: #15191b; border-radius: 6px; }
+  code { padding: .05em .3em; }
+  pre { padding: .8em 1em; font-size: .7em; }
+  table { border-collapse: collapse; font-size: .75em; }
+  td, th { border-bottom: 1px solid #333; padding: .5em .8em; text-align: left; vertical-align: top; }
+  .tl { display: grid; grid-template-columns: 9em 1fr; gap: .4em 1em; }
+  .tl div:nth-child(odd) { color: #d8a96a; font-family: ui-monospace, monospace; }
+  .split { display: grid; grid-template-columns: 1fr 1.5fr; gap: 3vw; align-items: center; } .split img { max-height: 70vh; }
+  img { max-height: 55vh; max-width: 100%; align-self: center; border-radius: 8px; }
+  .warn { color: #e0a060; }
+  .n { position: fixed; bottom: 2vh; right: 2vw; color: #555; font-size: .5em; }
+</style>
+
+<section>
+  <h1>Vibe Coding a Hackathon</h1>
+  <p>…and actually seeing what your AI did, with <b>Drawa</b></p>
+</section>
+
+<section>
+  <span class="t">1</span>
+  <h2>TL;DR</h2>
+  <ul>
+    <li><b>Ship a demo, not a codebase.</b> Judges see 3 minutes of your app.</li>
+    <li><b>One core flow.</b> Not in the demo? Don't build it.</li>
+    <li><b>Plan before code.</b> Argue with the plan, not 500 lines.</li>
+    <li><b>Commit every time it works.</b> Git is your undo button.</li>
+    <li><b>Know what the AI changed.</b> Can't explain it? Can't defend it.</li>
+  </ul>
+</section>
+
+<section>
+  <span class="t">1</span>
+  <h2>Scope + prompting</h2>
+  <ul>
+    <li><b>One-sentence pitch,</b> one core flow, boring stack (Next.js, Supabase, Vercel)</li>
+    <li><b>Rules file</b> the agent reads every session: <code>CLAUDE.md</code> / <code>AGENTS.md</code></li>
+    <li><b>Small asks.</b> One feature per prompt.</li>
+    <li><b>Show, don't describe:</b> screenshot, sketch, exact error</li>
+    <li><b>Define "done":</b> "Click Submit → see 5 quiz questions."</li>
+  </ul>
+</section>
+
+<section>
+  <span class="t">½</span>
+  <h2>The problem</h2>
+  <ul>
+    <li>4 teammates, 4 agents, one repo</li>
+    <li>Each agent's work <b>scrolls past in a terminal</b></li>
+    <li>Which files did it touch? What did it delete? Who broke the build?</li>
+    <li>You find out <b>on stage</b>.</li>
+  </ul>
+</section>
+
+<section>
+  <span class="t">½</span>
+  <h2>Drawa: your AI's work, drawn as a map</h2>
+  <img src="img/canvas.png" alt="Drawa canvas: two Claude sessions, a plan under review, files and commands windows">
+  <p>Two sessions, a plan under review, approvals, files and commands, each wired to its card.</p>
+</section>
+
+<section>
+  <span class="t">1</span>
+  <h2>1 · Argue with the plan, not the code</h2>
+  <div class="split"><div><ul>
+    <li>In plan mode the agent's plan lands on the canvas as a <b>document</b></li>
+    <li><b>Comment</b> on any block, or <b>draw</b> on it</li>
+    <li>Send it back → next version shows <b>exactly what changed</b></li>
+    <li>Approve only when it's right. Then it codes.</li>
+  </ul>
+  <p class="warn">10 minutes of planning saves 2 hours of undoing.</p></div><img src="img/plan.png" alt="A plan on the canvas with a comment on one step and Approve buttons"></div>
+</section>
+
+<section>
+  <span class="t">1</span>
+  <h2>2 · Parallel sessions, one canvas</h2>
+  <div class="split"><div><ul>
+    <li>Frontend agent, backend agent, bug-fix agent: <b>side by side</b></li>
+    <li>See instantly when two agents touch the <b>same file</b></li>
+    <li>Sub-agents get their own window. Message them directly.</li>
+    <li>Type any time: messages <b>queue</b> while the agent works</li>
+    <li>Reload or close the laptop: <b>sessions resume</b></li>
+  </ul></div><img src="img/canvas.png" alt="Two sessions side by side, each asking for approval"></div>
+</section>
+
+<section>
+  <span class="t">½</span>
+  <h2>3 · Review before you demo</h2>
+  <ul>
+    <li>Every edit from every session, <b>one click away as a diff</b></li>
+    <li>Catch the AI "fixing" a bug by deleting the feature</li>
+    <li>Git window built in: status, history, commit messages written for you</li>
+    <li>GitHub: PRs, issues, <b>failing CI checks → straight to the agent</b></li>
+  </ul>
+</section>
+
+<section>
+  <span class="t">½</span>
+  <h2>4 · A whiteboard around your code</h2>
+  <ul>
+    <li>Sticky notes, Markdown docs, Mermaid diagrams, sketches, screenshots</li>
+    <li><b><code>@</code>-mention</b> any of them in a prompt: "build the page in @sketch"</li>
+    <li><b>The AI draws too:</b> "draw the architecture on the canvas"</li>
+    <li>Your pitch notes live next to the code that backs them</li>
+  </ul>
+</section>
+
+<section>
+  <span class="t">½</span>
+  <h2>5 · The whole team, one workspace</h2>
+  <pre style="font-size:.85em">drawa --net .</pre>
+  <ul>
+    <li>Prints a link + <b>QR code</b>: teammates and phones join the same canvas</li>
+    <li>Token-protected. <span class="warn">Trusted Wi-Fi only; treat the link like a password.</span></li>
+    <li><code>drawa https://github.com/owner/repo</code>: clone and open in one go</li>
+  </ul>
+</section>
+
+<section>
+  <span class="t">½</span>
+  <h2>6 · No Claude subscription? Fine.</h2>
+  <ul>
+    <li>Runs <b>Claude Code</b>, <b>OpenCode</b> and <b>Codex</b></li>
+    <li>OpenCode has <b>free models</b>, no API key needed</li>
+    <li>Same canvas, same diffs, same approvals</li>
+  </ul>
+  <p class="warn">Free models may train on what you send. Don't use them on code you can't share.</p>
+</section>
+
+<section>
+  <span class="t">5</span>
+  <h2>Live demo</h2>
+  <ol>
+    <li><code>drawa</code> in a project folder</li>
+    <li>Plan mode: "add a quiz page" → comment on the plan → approve</li>
+    <li>Watch files light up → click one → diff</li>
+    <li>"Draw the architecture on the canvas"</li>
+    <li><code>drawa --net</code> → scan the QR</li>
+  </ol>
+</section>
+
+<section>
+  <span class="t">2</span>
+  <h2>When it breaks + last 3 hours</h2>
+  <ul>
+    <li><b>Paste the exact error.</b> Two bad fixes → <code>git restore .</code></li>
+    <li><b>Fresh session</b> when it gets confused. Three strikes → cut or fake it.</li>
+    <li><b>Feature freeze</b> 3h before the end. Deploy early. Seed fake data.</li>
+    <li><b>Review every diff on the canvas, rehearse twice, record a backup video.</b></li>
+  </ul>
+  <p class="warn">❌ API keys in git &nbsp; ❌ demoing code you never ran &nbsp; ❌ "the AI wrote it"</p>
+</section>
+
+<section>
+  <span class="t">½</span>
+  <h2>Try it</h2>
+<pre style="font-size:.85em">curl -fsSL https://raw.githubusercontent.com/HimalayanNomads/drawa/main/install.sh | sh
+cd my-hackathon-project
+drawa</pre>
+  <div class="split"><p>macOS / Linux (Windows: WSL)<br><b style="font-size:2em">drawa.cc</b></p><img src="img/qr.svg" alt="QR code for drawa.cc" style="max-height:40vh;background:#fff;padding:8px"></div>
+</section>
+
+<section>
+  <h1>Go ship something.</h1>
+  <p><b>drawa.cc</b></p>
+</section>
+
+<div class="n"></div>
+<script>
+  const s = [...document.querySelectorAll('section')], n = document.querySelector('.n');
+  let i = +location.hash.slice(1) || 0;
+  const go = d => { i = Math.max(0, Math.min(s.length - 1, i + d)); s.forEach((x, j) => x.classList.toggle('on', j === i)); n.textContent = `${i + 1}/${s.length}`; location.hash = i; };
+  addEventListener('keydown', e => {
+    if (['ArrowRight', ' ', 'PageDown'].includes(e.key)) go(1);
+    if (['ArrowLeft', 'PageUp'].includes(e.key)) go(-1);
+    if (e.key === 'f') document.documentElement.requestFullscreen();
+  });
+  addEventListener('click', () => go(1));
+  go(0);
+</script>
