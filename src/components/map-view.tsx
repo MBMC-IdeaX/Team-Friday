@@ -35,6 +35,7 @@ type RoutesRes = {
 
 type Picked = { lat: number; lng: number };
 
+import ReportSheet from "@/components/report-sheet";
 import { BRAND, CENTER, STYLE, scoreColor } from "@/lib/map-style";
 
 const fmtTime = (sec: number) => `${Math.round(sec / 60)} min`;
@@ -88,6 +89,7 @@ export default function MapView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cells, setCells] = useState<Cell[]>([]);
+  const [reporting, setReporting] = useState(false);
 
   // init map once
   useEffect(() => {
@@ -252,6 +254,27 @@ export default function MapView() {
         >
           SOS
         </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setReporting(true)}
+            className="flex-1 rounded-xl bg-black/70 px-3 py-3 text-sm backdrop-blur"
+          >
+            Report a spot
+          </button>
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="flex-1 rounded-xl bg-black/70 px-3 py-3 text-sm backdrop-blur"
+          >
+            Authority view
+          </button>
+        </div>
+        {reporting && (
+          <ReportSheet
+            lat={picked?.lat ?? userPos?.[1] ?? CENTER[1]}
+            lng={picked?.lng ?? userPos?.[0] ?? CENTER[0]}
+            onClose={() => setReporting(false)}
+          />
+        )}
         {!picked && (
           <div className="rounded-xl bg-black/70 px-4 py-3 text-sm backdrop-blur">
             Tap the map to set your destination.
