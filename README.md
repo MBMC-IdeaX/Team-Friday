@@ -98,6 +98,7 @@ dependency added after the scaffold.
 
 | | |
 |---|---|
+| [presentation.html](presentation.html) | 12-slide animated pitch deck — open it in a browser, no build step, works with the wifi off |
 | [docs/DEMO.md](docs/DEMO.md) | The 2-minute demo script, honest limits, and prepared Q&A |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it fits together and why |
 | [docs/API.md](docs/API.md) | All routes, status codes, and the traps |

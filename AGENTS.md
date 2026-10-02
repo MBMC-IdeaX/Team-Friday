@@ -41,3 +41,8 @@ These are the product, not implementation details. Do not "improve" them away.
 # Checks
 `npm test` (no framework) · `npm run check` + `npm run check:rec` (need a running
 server) · `npm run reset:demo` before a demo. Docs: docs/SETUP.md, docs/DEMO.md.
+
+# Pitch
+`presentation.html` — 12-slide animated deck. Open it in a browser; no build step
+and no network requests, so it survives the wifi dropping. ←/→ or click to advance,
+F for fullscreen. It states our limits out loud on slide 10 — do not cut that slide.
