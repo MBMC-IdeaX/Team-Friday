@@ -19,7 +19,7 @@ export const WEIGHTS = {
 } as const;
 
 // deterministic hash noise so server and client agree
-const hash = (i: number, j: number) => {
+export const hash = (i: number, j: number) => {
   const x = Math.sin(i * 127.1 + j * 311.7) * 43758.5453;
   return x - Math.floor(x);
 };
