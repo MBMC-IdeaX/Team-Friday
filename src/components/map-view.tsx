@@ -5,11 +5,16 @@ import {
   Map as MLMap,
   Marker,
   GeolocateControl,
+  config,
   type MapMouseEvent,
   type GeoJSONSource,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { CELLS, scoreOf } from "@/lib/safety";
+
+// Bundlers rewrite import.meta.url, so maplibre can't locate its worker file.
+// Serve a copy from /public instead (worker imports ../shared from same dir).
+config.WORKER_URL = "/maplibre-gl-worker.mjs";
 
 type Route = {
   id: number;
