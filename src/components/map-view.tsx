@@ -5,6 +5,7 @@ import {
   Map as MLMap,
   Marker,
   GeolocateControl,
+  AttributionControl,
   config,
   type MapMouseEvent,
   type GeoJSONSource,
@@ -36,18 +37,31 @@ type Picked = { lat: number; lng: number };
 const CENTER: [number, number] = [85.324, 27.7172]; // Kathmandu demo city
 const BRAND = "#1b7a86";
 
+// OSM standard tiles: no API key, no watermark (hackathon demo traffic)
 const STYLE = {
   version: 8 as const,
   sources: {
-    carto: {
+    osm: {
       type: "raster" as const,
-      tiles: ["https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png"],
+      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
       tileSize: 256,
-      maxzoom: 20,
-      attribution: "© OpenStreetMap © CARTO",
+      maxzoom: 19,
+      attribution: "© OpenStreetMap contributors",
     },
   },
-  layers: [{ id: "carto", type: "raster" as const, source: "carto" }],
+  layers: [
+    {
+      id: "osm",
+      type: "raster" as const,
+      source: "osm",
+      paint: {
+        // darken the light basemap so it fits the dark theme
+        "raster-brightness-max": 0.42,
+        "raster-saturation": -0.55,
+        "raster-contrast": 0.18,
+      } as Record<string, number>,
+    },
+  ],
 };
 
 const scoreColor = (s: number) => (s >= 70 ? "#22c55e" : s >= 45 ? "#eab308" : "#ef4444");
@@ -109,7 +123,9 @@ export default function MapView() {
       style: STYLE,
       center: CENTER,
       zoom: 12,
+      attributionControl: false,
     });
+    map.addControl(new AttributionControl({ compact: true }), "top-right");
     mapRef.current = map;
     const geo = new GeolocateControl({
       positionOptions: { enableHighAccuracy: true },
@@ -146,8 +162,8 @@ export default function MapView() {
         type: "circle",
         source: "cells",
         paint: {
-          "circle-radius": 26,
-          "circle-opacity": 0.4,
+          "circle-radius": 18,
+          "circle-opacity": 0.32,
           "circle-color": [
             "step",
             ["get", "risk"],
@@ -229,7 +245,10 @@ export default function MapView() {
 
   return (
     <div className="relative flex-1">
-      <div ref={containerRef} className="absolute inset-0" />
+      {/* maplibre's unlayered CSS forces position:relative on .maplibregl-map (beats
+          Tailwind layers), and % heights don't resolve against the flex parent —
+          inline absolute+inset stretches against the parent's used height instead */}
+      <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
 
       <header className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-xl bg-black/70 px-3 py-2 backdrop-blur">
         <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden>
