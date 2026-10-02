@@ -4,9 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
+  clearActiveSession,
   flushRecordings,
   listGuardians,
   newId,
+  setActiveSession,
+  activeSessionId,
   queueRequest,
   removeGuardian,
   saveGuardian,
@@ -22,7 +25,6 @@ const PIN_INTERVAL_MS = 5000;
 // session cannot quietly fill the device
 const CHUNK_MS = 10_000;
 const MAX_REC_SEC = 15 * 60;
-const ACTIVE_KEY = "hg:active-session";
 const ORIGIN_FALLBACK = "";
 
 // Press order matters and is deliberate: the session is written to IndexedDB and
@@ -85,7 +87,7 @@ export default function SosPage() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const previous = localStorage.getItem(ACTIVE_KEY);
+      const previous = activeSessionId();
       if (previous) {
         const existing = await fetch(`/api/sos?id=${previous}`)
           .then((r) => (r.ok ? r.json() : null))
@@ -101,7 +103,7 @@ export default function SosPage() {
       await queueRequest("/api/sos", seed);
       if (cancelled) return;
       setSessionId(id);
-      localStorage.setItem(ACTIVE_KEY, id);
+      setActiveSession(id);
       const res = await fetch("/api/sos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -248,6 +250,8 @@ export default function SosPage() {
     return () => clearInterval(t);
   }, [sentAgo]);
 
+  const primary = guardians[0];
+
   const message = () => {
     const where = pin ? `${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}` : "unknown";
     const link = `${window.location.origin || ORIGIN_FALLBACK}/guard/${sessionId}`;
@@ -279,7 +283,7 @@ export default function SosPage() {
     sirenRef.current?.stop();
     if (recRef.current?.state === "recording") recRef.current.stop();
     recStreamRef.current?.getTracks().forEach((t) => t.stop());
-    localStorage.removeItem(ACTIVE_KEY);
+    clearActiveSession();
     await flushRecordings().catch(() => {});
     await fetch("/api/sos", {
       method: "PATCH",
@@ -323,19 +327,39 @@ export default function SosPage() {
       </p>
 
       <div className="grid gap-2">
-        <a
-          href={`tel:${EMERGENCY}`}
-          className="rounded-xl bg-red-600 py-5 text-center text-2xl font-bold text-white"
-        >
-          CALL FOR HELP
-          <span className="block font-mono text-sm font-normal opacity-80">{EMERGENCY}</span>
-        </a>
+        {primary ? (
+          <a
+            href={`tel:${primary.phone}`}
+            className="rounded-xl bg-red-600 py-5 text-center text-2xl font-bold text-white"
+          >
+            CALL {primary.name || primary.phone}
+            <span className="block font-mono text-sm font-normal opacity-80">
+              {primary.phone}
+            </span>
+          </a>
+        ) : (
+          <a
+            href={`tel:${EMERGENCY}`}
+            className="rounded-xl bg-red-600 py-5 text-center text-2xl font-bold text-white"
+          >
+            CALL FOR HELP
+            <span className="block font-mono text-sm font-normal opacity-80">
+              {EMERGENCY}
+            </span>
+          </a>
+        )}
         <button
           onClick={share}
           className="rounded-xl bg-red-600/80 py-4 text-center text-lg font-semibold text-white"
         >
           Message guardians
         </button>
+        {guardians.length === 0 && (
+          <p className="rounded-xl bg-black/70 px-3 py-2 text-xs text-muted-foreground backdrop-blur">
+            Add a guardian below and the call button dials them instead of{" "}
+            {EMERGENCY}.
+          </p>
+        )}
       </div>
 
       {guardians.length > 0 && (

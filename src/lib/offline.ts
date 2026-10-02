@@ -142,6 +142,21 @@ export async function flushRecordings(): Promise<number> {
   return items.length - sent;
 }
 
+// -- active session -------------------------------------------------------------
+//
+// localStorage, not IndexedDB: this has to be readable synchronously on first
+// render so the home screen knows whether to show SOS or "I'm safe" without a
+// flash. The uuid doubles as the capability for /guard/<uuid>.
+
+const ACTIVE_KEY = "hg:active-session";
+
+export const activeSessionId = (): string | null =>
+  typeof localStorage === "undefined" ? null : localStorage.getItem(ACTIVE_KEY);
+
+export const setActiveSession = (id: string) => localStorage.setItem(ACTIVE_KEY, id);
+
+export const clearActiveSession = () => localStorage.removeItem(ACTIVE_KEY);
+
 // -- session id ---------------------------------------------------------------
 // `crypto.randomUUID` is [SecureContext], so it is undefined on
 // http://192.168.x.x — which is exactly how a phone opens a LAN demo. The SOS

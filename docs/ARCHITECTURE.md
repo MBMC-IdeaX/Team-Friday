@@ -46,6 +46,9 @@ shared verbatim by the server routes and the client. Consequences worth knowing:
 | Reports | `api/report` | `report-sheet.tsx` |
 | Dashboard | `api/dashboard` | `dashboard-view.tsx` |
 | Offline | `public/sw.js` + `lib/offline.ts` | `bootstrap.tsx` |
+| Audio recording | `api/recording` | `sos/page.tsx`, `lib/offline.ts` |
+| Push alerts | `lib/push-server.ts`, `api/push/*` | `lib/push.ts`, `guard-tracker.tsx` |
+| Voice trigger | — | `lib/voice.ts` (client only) |
 
 ## The SOS design, in one paragraph
 
@@ -57,6 +60,25 @@ generated siren, then `watchPosition`, then *then* alert guardians. Guardian
 alerting is layered: OS share sheet → Web Push → Realtime. Pinned positions are
 deliberately never queued, because a stale pin misplaces her; the next
 `watchPosition` tick retries on its own.
+
+## Two toggles, and why neither blocks anything
+
+**SOS is a toggle.** Tapping it on the home screen opens a session; tapping again
+stops the alert. If a session is already live, a second tap *reuses* it and only
+updates the pin, so a panicking double-tap cannot re-alert every guardian. The
+active uuid lives in `localStorage`, re-read on mount and whenever the tab regains
+focus so a session finished in another tab is reflected here, and "I'm safe"
+resolves the session from either screen.
+
+**Voice is a toggle too.** `🎙 Voice SOS` arms Web Speech, and it only ever starts
+from a click, because recognition will not start without a gesture. On a match it
+routes into `/sos` — so it inherits every reliability property already built
+there rather than re-implementing any of them. The phrase matcher is deliberately
+narrow (`help me`, `bachao`, `sos`, …): a false alert trains guardians to ignore
+alerts, which is worse than no voice trigger.
+
+Neither toggle can refuse to fire. Anything that *blocks* the second press could
+kill the one call that matters.
 
 ## Trust model
 
@@ -76,7 +98,12 @@ limitation and the deliberate no-SELECT policy on `reports`. `/login` is an opti
 magic link; nothing in the SOS path checks it.
 
 **No native app.** The one thing a PWA cannot do is fire SOS from a locked screen.
-We state that limit rather than hide it, and make `tel:` the floor.
+We state that limit rather than hide it, and make `tel:` the floor. Note also that
+the call button is a deliberate extra tap rather than auto-dial: browsers refuse
+`tel:` without a gesture, and auto-navigating away would kill the recording.
+
+**Web Speech last.** Recognition in Chrome is cloud-based, so voice is the one
+trigger that stops working in a tunnel. Built last, on purpose.
 
 ## Dependency count
 

@@ -246,7 +246,7 @@ Guardian phone numbers are stored **on the device**, so the SOS screen's Message
 | S.4 | Guardian layers | `src/lib/realtime.ts`, `src/app/guard/[id]/page.tsx`, `src/lib/map-style.ts` | phone A taps SOS → phone B pin moves; reload keeps last position |
 | S.6 | Web Push | `web-push`, VAPID, `push_subscriptions` (5th table), `src/lib/push.ts` + `push-server.ts` | ✅ code complete — **needs the S.6 SQL block run in Supabase**, then guardian opts in |
 | S.7 | Auto-record → Storage | `src/app/sos/page.tsx` | file appears in the `recordings` bucket |
-| S.8 | Voice trigger | `src/app/sos/page.tsx` | "help me" fires SOS (online only) |
+| S.8 | Voice trigger | `src/lib/voice.ts` + toggle on the map screen ✅ "help me" / "bachao" fires SOS (online only) |
 
 **New deps this phase:** `web-push` (approved) — nothing else. Service worker, IndexedDB wrapper, siren and share are hand-rolled on platform APIs. Background Sync is skipped: Chromium-only (no Safari, no Firefox), and `online` + IndexedDB is both shorter and cross-browser.
 
@@ -258,7 +258,9 @@ Guardian phone numbers are stored **on the device**, so the SOS screen's Message
 
 **False SOS is fixed without identity:** one active session per device (`localStorage` + a status check). A second tap while a session is live *reuses* it and just updates the pin, instead of opening a new session and re-alerting every guardian. A rate limit that **blocked** a second tap could kill the one call that matters, so nothing is blocked.
 
-**Progress:** S.0–S.4, S.6 (code), S.7 **shipped**. DB is live and seeded (609 cells / 338 incidents / 40 reports; `/api/cells` reports `source: "db"`). S.5 needs no work — the S.1 SW cache already serves the grid offline. Remaining: S.8 voice (offline-dead by nature), plus running the S.6 SQL block.
+**Progress:** S.0–S.4, S.6 (code), S.7 **shipped**. DB is live and seeded (609 cells / 338 incidents / 40 reports; `/api/cells` reports `source: "db"`). S.5 needs no work — the S.1 SW cache already serves the grid offline. Remaining: nothing in code. S.8 shipped last because Web Speech is cloud-based and therefore offline-dead by nature.
+
+**SOS is a toggle, not a one-shot.** Tapping SOS on the home screen starts a session; tapping again stops the alert. A second tap **reuses** the live session and just updates the pin, so a panicking double-tap cannot re-alert every guardian — and nothing is ever *blocked*, because a rate limit that suppressed a second tap could kill the one call that matters. The big red button on the SOS screen dials the **primary guardian** from the on-device list (`tel:`), falling back to `EMERGENCY` when none is configured. "I'm safe" exists on both `/sos` and the home screen.
 
 **Checks that exist:** `npm test` (`node --test`, drain ordering) · `npm run check` (`/api/sos` 12 assertions · `/api/report` 7 · anon→anon broadcast) · `npm run reset:demo` (strip check/probe rows back out). Offline behaviour needs a real device; it has not been verified on hardware yet.
 

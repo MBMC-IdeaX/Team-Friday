@@ -99,8 +99,22 @@ airplane mode, then reopen. The shell and the safety grid should still render.
 greys out and the risk overlay remains. That is the intended trade, recorded in
 `PLAN.md` §5.
 
-`EMERGENCY` in `src/app/sos/page.tsx` is the number the red button dials. It is a
-constant, not an env var — change it there, and confirm it for your region.
+`EMERGENCY` in `src/app/sos/page.tsx` is the fallback the red button dials when no
+guardian is configured. Once you add a guardian on the SOS screen, the button dials
+**that person** instead. Change the constant for your region.
+
+Permissions the phone will ask for, and when:
+
+| Permission | Asked when | Without it |
+|---|---|---|
+| Microphone | Tapping `🎙 Voice SOS` | Voice trigger unavailable; SOS still works |
+| Microphone | SOS screen opens | No recording, everything else works |
+| Notifications | Guardian taps "Alert me even if this tab is closed" | No push; guardians still get live tracking while their page is open |
+| Location | SOS screen opens, and the map's geolocate button | No live pin |
+
+The call button, the SMS and the local session write do not depend on any of those
+prompts succeeding — a denied microphone costs you the recording, not the alert.
+Recording and location failures are reported on the SOS screen rather than hidden.
 
 ## 8. Checks
 

@@ -46,11 +46,20 @@ Phone A taps **SOS**; phone B is on the Guardian link.
 
 > "One tap. No confirmation dialog — latency kills panic buttons. The session is
 > written to the phone *first*, before any network call. So 'SOS fired' means it
-> was persisted locally, not that a server answered. Then: it dials, it drafts a
-> text with her coordinates, it starts recording, and it starts streaming her
-> position to the guardian."
+> was persisted locally, not that a server answered."
 
-Point out the recording timer, the live pin on phone B.
+Now on the call screen.
+
+> "It goes straight to my contacts and dials. Then it drafts a text with my
+> coordinates, starts recording, and streams my position to the guardian."
+
+Point out the recording timer, then tap **STOP ALERT** — or **I'm safe**.
+
+> "To stop, I tap SOS again — it's a toggle, so a second tap can't fire a new
+> alert at my guardians — or I hit 'I'm safe', which resolves the session. That
+> button is on the home screen too, so I never have to come back in here."
+
+Show the home screen with **STOP ALERT** + **I'm safe**.
 
 > "And with push armed, the guardian gets this even if their browser is closed.
 > That matters because the push goes server-to-guardian — it lands even if she has
@@ -83,7 +92,7 @@ Volunteering a limitation reads as competence; being caught on one doesn't.
 |---|---|
 | Crime data is seeded | Public data is NCRB-level granularity, not street-level. The *pipeline* is real, the weights are defensible, the data is marked `// FAKE`. |
 | No offline routing | OSRM is a network call. Offline routing needs a ~100MB road graph. We say so. |
-| Voice trigger dies offline | Web Speech is cloud-based. It's the last thing we built, for that reason. |
+| Voice trigger dies offline | Web Speech recognition is cloud-based. `🎙 Voice SOS` arms it, but it's the one trigger that stops working in a tunnel — hence it is last in the cut order, and the red button remains the floor. |
 | Nothing fires from a locked screen | That's native-only. `tel:` is the floor, and it's why the red button is a `tel:` link and not just an API call. |
 | Guardian must open the app for live tracking | Push fixes this, but only once installed and granted. |
 
@@ -128,5 +137,6 @@ hide it.
 - [ ] Open over **HTTPS** (`cloudflared tunnel --url http://localhost:3000`) or geolocation is dead
 - [ ] `npm run reset:demo && npm run seed` — clean tables before you present
 - [ ] Both phones: location permission granted, airplane mode tested
-- [ ] Guardians pre-added on phone A so the text button is populated
+- [ ] Guardians pre-added on phone A, so the big red button dials a person and not the fallback number
+- [ ] Try SOS → STOP ALERT → SOS once, so the toggle is muscle memory
 - [ ] Backup video recorded

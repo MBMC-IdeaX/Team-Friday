@@ -36,6 +36,8 @@ type RoutesRes = {
 type Picked = { lat: number; lng: number };
 
 import ReportSheet from "@/components/report-sheet";
+import { startVoiceSos, voiceSupported } from "@/lib/voice";
+import { activeSessionId, clearActiveSession } from "@/lib/offline";
 import { BRAND, CENTER, STYLE, scoreColor } from "@/lib/map-style";
 
 const fmtTime = (sec: number) => `${Math.round(sec / 60)} min`;
@@ -90,6 +92,59 @@ export default function MapView() {
   const [error, setError] = useState<string | null>(null);
   const [cells, setCells] = useState<Cell[]>([]);
   const [reporting, setReporting] = useState(false);
+  const [voiceArmed, setVoiceArmed] = useState(false);
+  const [voiceNote, setVoiceNote] = useState<string | null>(null);
+  const [activeSession, setActiveSession] = useState<string | null>(null);
+
+  // Voice SOS. Arms only from a click, because Web Speech will not start without a
+  // gesture. On a match it just routes into /sos — every reliability property
+  // already lives there (local-first write, tel:, recording, guardians).
+  const stopVoiceRef = useRef<(() => void) | null>(null);
+  const toggleVoice = () => {
+    if (voiceArmed) {
+      stopVoiceRef.current?.();
+      stopVoiceRef.current = null;
+      setVoiceArmed(false);
+      setVoiceNote(null);
+      return;
+    }
+    if (!voiceSupported()) {
+      setVoiceNote("This browser has no speech recognition.");
+      return;
+    }
+    stopVoiceRef.current = startVoiceSos(
+      () => router.push("/sos"),
+      (message) => {
+        setVoiceNote(message);
+        setVoiceArmed(false);
+      },
+    );
+    setVoiceArmed(true);
+    setVoiceNote('Say "help me" or "bachao". Needs a network connection.');
+  };
+  useEffect(() => () => stopVoiceRef.current?.(), []);
+
+  // An SOS is a toggle: tapping again stops the alert. localStorage is read
+  // directly rather than via state so the very first paint already shows the
+  // right button — no flash of "SOS" on top of a live session.
+  useEffect(() => {
+    const read = () => setActiveSession(activeSessionId());
+    read();
+    addEventListener("focus", read);
+    return () => removeEventListener("focus", read);
+  }, []);
+
+  const endSession = async () => {
+    const id = activeSessionId();
+    clearActiveSession();
+    setActiveSession(null);
+    if (!id) return;
+    await fetch("/api/sos", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status: "resolved" }),
+    }).catch(() => {});
+  };
 
   // init map once
   useEffect(() => {
@@ -254,12 +309,30 @@ export default function MapView() {
 
       <div className="absolute bottom-3 left-3 z-10 w-[min(24rem,calc(100vw-1.5rem))] space-y-2">
         <button
-          onClick={() => router.push("/sos")}
-          className="w-full rounded-xl bg-red-600 py-4 text-center text-lg font-bold tracking-wide text-white"
+          onClick={() => (activeSession ? endSession() : router.push("/sos"))}
+          className={`w-full rounded-xl py-4 text-center text-lg font-bold tracking-wide text-white ${
+            activeSession ? "bg-red-950 text-red-300 ring-1 ring-red-500/50" : "bg-red-600"
+          }`}
         >
-          SOS
+          {activeSession ? "STOP ALERT" : "SOS"}
         </button>
+        {activeSession && (
+          <button
+            onClick={endSession}
+            className="w-full rounded-xl border border-emerald-500/40 bg-emerald-950/60 px-3 py-3 text-center text-sm font-semibold text-emerald-300"
+          >
+            I&apos;m safe — end this session
+          </button>
+        )}
         <div className="flex gap-2">
+          <button
+            onClick={toggleVoice}
+            className={`flex-1 rounded-xl px-3 py-3 text-sm backdrop-blur ${
+              voiceArmed ? "bg-red-600 text-white" : "bg-black/70"
+            }`}
+          >
+            {voiceArmed ? "🎙 Voice SOS armed" : "🎙 Voice SOS"}
+          </button>
           <button
             onClick={() => setReporting(true)}
             className="flex-1 rounded-xl bg-black/70 px-3 py-3 text-sm backdrop-blur"
@@ -279,6 +352,11 @@ export default function MapView() {
             lng={picked?.lng ?? userPos?.[0] ?? CENTER[0]}
             onClose={() => setReporting(false)}
           />
+        )}
+        {voiceNote && (
+          <div className="rounded-xl bg-black/70 px-3 py-2 text-xs text-muted-foreground backdrop-blur">
+            {voiceNote}
+          </div>
         )}
         {!picked && (
           <div className="rounded-xl bg-black/70 px-4 py-3 text-sm backdrop-blur">
