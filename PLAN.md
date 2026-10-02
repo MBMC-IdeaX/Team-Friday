@@ -57,8 +57,9 @@ flowchart LR
 - **OSRM** — public demo server first, self-hosted Docker profile if time allows
 - **AGENTS.md rules file** — pitch, stack, look, "no new libraries without asking", "fake data marked // FAKE"
 
-### Data model (5 tables)
-`safety_cells` (grid id, lat/lng, base_score, lighting, crowd_proxy) · `reports` (type, geo, anon, created_at) · `incidents` (seeded crime history) · `guardian_sessions` (user, guardian, poly, expires) · `sos_events` (geo, media_url, status)
+### Data model (4 tables — supabase/schema.sql is authoritative)
+
+`safety_cells` (grid lat/lng + crime/report/lighting/crowd factors, `report_bumped_at` for read-time 7-day decay) · `reports` (anonymous, `seeded` flag, no public read) · `incidents` (seeded history with `source` provenance) · `guardian_sessions` (SOS session = status + latest pin + `media_paths[]`; uuid is the capability — no auth in MVP). Private storage buckets `recordings`, `report-photos` (service-role only, signed URLs out). RLS: public read cells/incidents, anon insert reports/sessions, reports never publicly readable. Score stays in TS (`src/lib/safety.ts`); DB stores factors only — no PostGIS, no triggers (report→cell bump happens in `/api/report`).
 
 ---
 

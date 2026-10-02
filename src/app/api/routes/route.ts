@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getCells } from "@/lib/db";
 import { safetyAt } from "@/lib/safety";
 
 type OsrmRoute = {
@@ -7,13 +8,17 @@ type OsrmRoute = {
   geometry: { coordinates: [number, number][] };
 };
 
-function routeSafety(coords: [number, number][], hour: number): number {
+function routeSafety(
+  cells: Awaited<ReturnType<typeof getCells>>["cells"],
+  coords: [number, number][],
+  hour: number,
+): number {
   const step = Math.max(1, Math.floor(coords.length / 60)); // sample ~60 points
   let sum = 0;
   let n = 0;
   for (let i = 0; i < coords.length; i += step) {
     const [lng, lat] = coords[i];
-    sum += safetyAt(lat, lng, hour);
+    sum += safetyAt(cells, lat, lng, hour);
     n++;
   }
   return Math.round(sum / n);
@@ -51,12 +56,13 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const { cells } = await getCells();
   const hour = new Date().getHours();
   const routes = data.routes.map((r, i) => ({
     id: i,
     duration: Math.round(r.duration),
     distance: Math.round(r.distance),
-    safety: routeSafety(r.geometry.coordinates, hour),
+    safety: routeSafety(cells, r.geometry.coordinates, hour),
     coords: r.geometry.coordinates,
   }));
 

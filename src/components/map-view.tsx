@@ -11,7 +11,7 @@ import {
   type GeoJSONSource,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { CELLS, scoreOf } from "@/lib/safety";
+import { buildCells, scoreOf, type Cell } from "@/lib/safety";
 
 // Bundlers rewrite import.meta.url, so maplibre can't locate its worker file.
 // Serve a copy from /public instead (worker imports ../shared from same dir).
@@ -114,6 +114,7 @@ export default function MapView() {
   const [destScore, setDestScore] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cells, setCells] = useState<Cell[]>([]);
 
   // init map once
   useEffect(() => {
@@ -145,17 +146,7 @@ export default function MapView() {
     map.on("load", () => {
       map.addSource("cells", {
         type: "geojson",
-        data: {
-          type: "FeatureCollection",
-          features: CELLS.map((c) => {
-            const score = scoreOf(c, new Date().getHours());
-            return {
-              type: "Feature" as const,
-              properties: { score, risk: (100 - score) / 100 },
-              geometry: { type: "Point" as const, coordinates: [c.lng, c.lat] },
-            };
-          }),
-        },
+        data: { type: "FeatureCollection", features: [] },
       });
       map.addLayer({
         id: "cells",
@@ -196,6 +187,14 @@ export default function MapView() {
     };
   }, []);
 
+  // load safety cells (DB-backed server side, FAKE fallback if unconfigured)
+  useEffect(() => {
+    fetch("/api/cells")
+      .then((r) => r.json())
+      .then((j) => setCells(Array.isArray(j.cells) && j.cells.length ? j.cells : buildCells()))
+      .catch(() => setCells(buildCells()));
+  }, []);
+
   // fetch score + routes for destination
   useEffect(() => {
     if (!picked) return;
@@ -229,6 +228,20 @@ export default function MapView() {
         .setLngLat([picked.lng, picked.lat])
         .addTo(map);
     }
+    if (cells.length) {
+      const hour = new Date().getHours();
+      (map.getSource("cells") as GeoJSONSource).setData({
+        type: "FeatureCollection",
+        features: cells.map((c) => {
+          const score = scoreOf(c, hour);
+          return {
+            type: "Feature" as const,
+            properties: { score, risk: (100 - score) / 100 },
+            geometry: { type: "Point" as const, coordinates: [c.lng, c.lat] },
+          };
+        }),
+      });
+    }
     if (data) {
       const byId = (id: number) => data.routes.find((r) => r.id === id);
       (map.getSource("shortest") as GeoJSONSource).setData(routeFc(byId(data.shortestId)));
@@ -237,7 +250,7 @@ export default function MapView() {
       (map.getSource("shortest") as GeoJSONSource).setData(routeFc());
       (map.getSource("safest") as GeoJSONSource).setData(routeFc());
     }
-  }, [mapReady, picked, data]);
+  }, [mapReady, picked, data, cells]);
 
   const shortest = data?.routes.find((r) => r.id === data.shortestId);
   const safest = data?.routes.find((r) => r.id === data.safestId);

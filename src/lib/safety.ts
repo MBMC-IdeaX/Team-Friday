@@ -1,4 +1,5 @@
-// FAKE: seeded safety cells around Kathmandu — swap for Supabase safety_cells (task 1.1).
+// FAKE: crime hotspots synthetic until a real Kathmandu dataset lands.
+// Scoring is pure TS; the DB only stores the factors (see supabase/schema.sql).
 
 export type Factors = {
   crimeRisk: number; // 0..1
@@ -7,6 +8,8 @@ export type Factors = {
   crowd: number; // 0..1, 1 = busy
 };
 
+export type Cell = Factors & { id: number; lat: number; lng: number };
+
 export const WEIGHTS = {
   crime: 0.4,
   reports: 0.25,
@@ -14,8 +17,6 @@ export const WEIGHTS = {
   lighting: 0.1,
   crowd: 0.1,
 } as const;
-
-export type Cell = Factors & { lat: number; lng: number };
 
 // deterministic hash noise so server and client agree
 const hash = (i: number, j: number) => {
@@ -30,7 +31,7 @@ const HOTSPOTS = [
 
 const BOUNDS = { lat0: 27.66, lat1: 27.76, lng0: 85.26, lng1: 85.4, step: 0.005 };
 
-function buildCells(): Cell[] {
+export function buildCells(): Cell[] {
   const cells: Cell[] = [];
   let i = 0;
   for (let lat = BOUNDS.lat0; lat <= BOUNDS.lat1 + 1e-9; lat += BOUNDS.step, i++) {
@@ -42,6 +43,7 @@ function buildCells(): Cell[] {
         crimeRisk += h.sev * Math.exp(-d2 / (2 * h.r * h.r));
       }
       cells.push({
+        id: i * 1000 + j,
         lat: +lat.toFixed(5),
         lng: +lng.toFixed(5),
         crimeRisk: Math.min(1, crimeRisk),
@@ -53,8 +55,6 @@ function buildCells(): Cell[] {
   }
   return cells;
 }
-
-export const CELLS: Cell[] = buildCells();
 
 // 0 = safe hours (day), 1 = riskiest (late night)
 export function timeRisk(hour: number): number {
@@ -75,10 +75,10 @@ export function scoreOf(f: Factors, hour: number): number {
 }
 
 // nearest-cell lookup, O(n) — ponytail: fine at ~600 cells, use a grid index if it ever hurts
-export function cellAt(lat: number, lng: number): Cell {
-  let best = CELLS[0];
+export function cellAt(cells: Cell[], lat: number, lng: number): Cell {
+  let best = cells[0];
   let bestD = Infinity;
-  for (const c of CELLS) {
+  for (const c of cells) {
     const d = (c.lat - lat) ** 2 + (c.lng - lng) ** 2;
     if (d < bestD) {
       bestD = d;
@@ -88,7 +88,6 @@ export function cellAt(lat: number, lng: number): Cell {
   return best;
 }
 
-export function safetyAt(lat: number, lng: number, hour: number): number {
-  const c = cellAt(lat, lng);
-  return scoreOf(c, hour);
+export function safetyAt(cells: Cell[], lat: number, lng: number, hour: number): number {
+  return scoreOf(cellAt(cells, lat, lng), hour);
 }
