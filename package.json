@@ -10,6 +10,7 @@
     "seed": "node scripts/seed.mjs",
     "test": "node --test test/",
     "check": "node scripts/check-sos.mjs && node scripts/check-report.mjs && node scripts/check-realtime.mjs",
+    "check:rec": "node scripts/check-recording.mjs",
     "reset:demo": "node scripts/reset-demo.mjs"
   },
   "dependencies": {

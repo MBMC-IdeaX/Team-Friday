@@ -21,7 +21,10 @@ npm install
 1. New project at supabase.com.
 2. SQL editor → paste **all** of `supabase/schema.sql` → Run. It creates 4 tables,
    RLS policies, and the two private storage buckets.
-3. Confirm `/api/cells` reports `"source": "db"` once the app is running. If it
+3. Run the **S.6 block at the bottom of the file** too (Web Push) — it creates
+   `push_subscriptions`. Until you do, `GET /api/push/subscribe` returns 500 with a
+   message saying so.
+4. Confirm `/api/cells` reports `"source": "db"` once the app is running. If it
    says `"fake"`, the env vars are wrong or the tables are missing.
 
 No Supabase CLI needed. If you have the direct connection string
@@ -35,6 +38,8 @@ Create `.env.local` in the repo root:
 NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=eyJ...     # the service_role key
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ... # the anon / publishable key
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=B...    # from: npx web-push generate-vapid-keys
+VAPID_PRIVATE_KEY=...                # server-only, never NEXT_PUBLIC_
 ```
 
 - `.env*` is gitignored. **Never commit the service-role key** — it bypasses RLS
@@ -43,7 +48,9 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ... # the anon / publishable key
   what keeps it server-side. All DB access goes through `/api/*`; the browser
   never talks to Supabase directly.
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY` is the publishable key. Safe in the browser —
-  it is what the Realtime subscription uses.
+  it is what the Realtime subscription and `/login` use.
+- The VAPID **public** key is safe to ship; the **private** key is not. Push only
+  works on HTTPS, and on iOS only from a Home Screen web app.
 
 ## 5. Seed
 
@@ -101,6 +108,7 @@ constant, not an env var — change it there, and confirm it for your region.
 npm test          # node:test, no framework — drain ordering
 npm run lint
 npm run check     # /api/sos + /api/report + Realtime broadcast (needs a running server)
+npm run check:rec  # /api/recording upload + media_paths
 npm run reset:demo  # strip check/probe rows back out of the DB
 ```
 
