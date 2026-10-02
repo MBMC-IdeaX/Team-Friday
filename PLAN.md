@@ -159,11 +159,14 @@ flowchart LR
 **Exit check:** submit report → score changes → dashboard hotspot moves. **Commit:** "closed loop".
 
 ### Phase 4 — Polish (h24–31)
-- A: Impeccable critique + mobile-first fixes on the 3 main screens
-- C: reseed demo data so the demo *always* looks good
-- D: rehearse pitch ×2, record backup video (Brag plugin)
-- B: verify `.env` not in git, RLS policies, dead-end/error states
-- All: every diff reviewed
+- A: Impeccable critique + mobile-first fixes on the 3 main screens — ✅ audited
+  at 390×844 and 360×640: no horizontal overflow, every tap target ≥32px
+- C: reseed demo data so the demo *always* looks good — ✅ `npm run reset:demo`
+- D: rehearse pitch ×2, record backup video (Brag plugin) — ⬜ needs people
+- B: verify `.env` not in git, RLS policies, dead-end/error states — ✅ no `.env*`
+  in history, RLS re-audited live (anon reads 0 rows from `reports`,
+  `guardian_sessions`, `push_subscriptions`), dead ends fixed (see below)
+- All: every diff reviewed — ⬜ needs people
 
 **Exit check:** demo runs clean twice from the live URL. **Commit:** "demo ready".
 
@@ -258,7 +261,13 @@ Guardian phone numbers are stored **on the device**, so the SOS screen's Message
 
 **False SOS is fixed without identity:** one active session per device (`localStorage` + a status check). A second tap while a session is live *reuses* it and just updates the pin, instead of opening a new session and re-alerting every guardian. A rate limit that **blocked** a second tap could kill the one call that matters, so nothing is blocked.
 
-**Progress:** S.0–S.4, S.6 (code), S.7 **shipped**. DB is live and seeded (609 cells / 338 incidents / 40 reports; `/api/cells` reports `source: "db"`). S.5 needs no work — the S.1 SW cache already serves the grid offline. Remaining: nothing in code. S.8 shipped last because Web Speech is cloud-based and therefore offline-dead by nature.
+**Dead ends closed.** Phase 4 asks for these explicitly and three existed:
+`/guard/<id>` said "Loading…" forever on an unknown uuid; `/dashboard` showed an
+error *and* kept saying "Loading…"; and if IndexedDB was unavailable (Safari
+private mode) `queueRequest` rejected, leaving the whole SOS screen inert. All
+three now say what is wrong and offer a way out.
+
+**Progress:** S.0–S.4, S.6, S.7, S.8 **shipped**. Phase 1, 2 and 3 code complete. DB is live and seeded (609 cells / 338 incidents / 40 reports; `/api/cells` reports `source: "db"`). S.5 needs no work — the S.1 SW cache already serves the grid offline. Remaining: nothing in code. S.8 shipped last because Web Speech is cloud-based and therefore offline-dead by nature.
 
 **SOS is a toggle, not a one-shot.** Tapping SOS on the home screen starts a session; tapping again stops the alert. A second tap **reuses** the live session and just updates the pin, so a panicking double-tap cannot re-alert every guardian — and nothing is ever *blocked*, because a rate limit that suppressed a second tap could kill the one call that matters. The big red button on the SOS screen dials the **primary guardian** from the on-device list (`tel:`), falling back to `EMERGENCY` when none is configured. "I'm safe" exists on both `/sos` and the home screen.
 

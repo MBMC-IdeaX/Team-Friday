@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Map as MLMap, Marker, AttributionControl, config } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -30,6 +31,7 @@ export default function GuardTracker({ id }: { id: string }) {
   const [session, setSession] = useState<Session | null>(null);
   const [pin, setPin] = useState<{ lat: number; lng: number } | null>(null);
   const [live, setLive] = useState(false);
+  const [status, setStatus] = useState<"loading" | "live" | "offline" | "missing">("loading");
   const [age, setAge] = useState(0);
   const [push, setPush] = useState<"unknown" | "on" | "off" | "unsupported">("unknown");
   const [pushNote, setPushNote] = useState<string | null>(null);
@@ -38,18 +40,31 @@ export default function GuardTracker({ id }: { id: string }) {
   // persisted pin still moves the marker every POLL_MS. ponytail: one cheap poll
   // beats a dead screen; drop it if realtime proves reliable in the demo.
   useEffect(() => {
+    let gone = false;
     const pull = () =>
       fetch(`/api/sos?id=${id}`)
-        .then((r) => (r.ok ? r.json() : null))
+        .then((r) => {
+          // 404 unknown session, 400 malformed uuid — both mean this link is dead.
+          // Saying so beats an eternal "Loading…", which is what this used to do.
+          if (r.status === 404 || r.status === 400) {
+            gone = true;
+            setStatus("missing");
+            return null;
+          }
+          if (!r.ok) return null; // transient: keep polling
+          return r.json();
+        })
         .then((j) => {
-          if (!j?.session) return;
+          if (gone || !j?.session) return;
           setSession(j.session);
+          setStatus("live");
           if (j.session.lat != null && j.session.lng != null) {
             setPin({ lat: j.session.lat, lng: j.session.lng });
           }
         })
-        .catch(() => {});
+        .catch(() => setStatus((s) => (s === "loading" ? "offline" : s)));
     void pull();
+    if (gone) return;
     const t = setInterval(pull, POLL_MS);
     return () => clearInterval(t);
   }, [id]);
@@ -104,11 +119,15 @@ export default function GuardTracker({ id }: { id: string }) {
       <header className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-xl bg-black/70 px-3 py-2 backdrop-blur">
         <span className={`h-2 w-2 rounded-full ${live ? "animate-pulse bg-red-500" : "bg-muted-foreground"}`} />
         <span className="text-sm font-semibold">
-          {session?.status === "active"
-            ? "Tracking live"
-            : session
-              ? `Session ${session.status}`
-              : "Loading…"}
+          {status === "missing"
+            ? "Session not found"
+            : status === "offline"
+              ? "Waiting for connection"
+              : session?.status === "active"
+                ? "Tracking live"
+                : session
+                  ? `Session ${session.status}`
+                  : "Loading…"}
         </span>
         <span className="font-mono text-xs text-muted-foreground">
           {String(Math.floor(age / 60)).padStart(2, "0")}:{String(age % 60).padStart(2, "0")}
@@ -135,10 +154,28 @@ export default function GuardTracker({ id }: { id: string }) {
             setPush(r.ok ? "on" : "off");
             setPushNote(r.ok ? "You will be alerted even if this tab is closed." : (r.error ?? null));
           }}
-          className="mt-1 w-full rounded-lg bg-red-600/80 px-2 py-1.5 text-xs font-semibold text-white"
+          className="mt-1 w-full rounded-lg bg-red-600/80 px-2 py-3 text-sm font-semibold text-white"
         >
           {push === "on" ? "Alerts armed — works with this tab closed" : "Alert me even if this tab is closed"}
         </button>
+        {status === "missing" && (
+          <div className="mt-1 rounded-lg border border-amber-500/40 bg-amber-950/50 px-2 py-2 text-[11px] text-amber-300">
+            This tracking link is not valid, or the session has expired. Guardians only
+            get a link while a session is live.
+            <Link
+              href="/"
+              className="mt-2 block rounded-lg bg-black/60 px-2 py-3 text-center font-semibold underline"
+            >
+              ← Back to the map
+            </Link>
+          </div>
+        )}
+        {status === "offline" && (
+          <p className="text-[11px] text-amber-400">
+            No connection. This page keeps trying — the last known position is shown above
+            once it reaches the server.
+          </p>
+        )}
         {push === "unsupported" && (
           <p className="text-[11px] text-amber-400">
             Push needs a supported browser. On iOS: share sheet → Add to Home Screen, then reopen.

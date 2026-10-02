@@ -100,7 +100,13 @@ export default function SosPage() {
       }
       const id = newId();
       const seed = { id, triggered_by: "tap", lat: 27.7172, lng: 85.324 };
-      await queueRequest("/api/sos", seed);
+      // IndexedDB can be unavailable (Safari private browsing used to disable it).
+      // The durable write is best-effort: if it fails we still open the session and
+      // still go to the network, because a blocked local store must never be the
+      // reason the panic button does nothing.
+      await queueRequest("/api/sos", seed).catch(() => {
+        if (!cancelled) setRecNote("Offline storage unavailable — this session cannot be saved on the device.");
+      });
       if (cancelled) return;
       setSessionId(id);
       setActiveSession(id);

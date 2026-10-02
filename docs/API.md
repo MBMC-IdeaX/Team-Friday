@@ -131,8 +131,10 @@ reports are a few hundred rows, so this avoids an RPC, a view and PostGIS.
 
 ```json
 { "hour": 22,
-  "stats": { "cells": 609, "incidents": 338, "reports": 40,
-             "seededReports": 40, "avgScore": 65 },
+  "stats": { "cells": 609, "incidents": 338, "reports": 40, "seededReports": 40,
+             "avgScore": 60, "avgScoreWithoutReports": 68 },
+  "biggestSwing": { "lat": 27.695, "lng": 85.31, "swing": 22,
+                    "score": 22, "without": 44, "reports": 1 },
   "top": [ { "id": 823, "lat": 27.695, "lng": 85.31, "score": 26,
              "reports": 1, "seeded": 1, "incidents": 2, "severity": 2 } ],
   "weekly": [ { "weekStart": 1756…, "reports": 6, "incidents": 12 } ],
@@ -143,3 +145,9 @@ reports are a few hundred rows, so this avoids an RPC, a view and PostGIS.
   report counts attributed to that cell via the same `cellAt()` the map uses.
 - `weekly` is 12 weeks, oldest first, Monday-UTC buckets so the series is stable.
 - `seededReports` lets the UI state plainly how much of the history is fake.
+- **`avgScoreWithoutReports` and `biggestSwing` are the "before/after" story** and
+  are exact counterfactuals, not a reconstruction: each is the same
+  `scoreOf()` call with `reportRisk` forced to `0`. Higher score = safer, so
+  removing reports *raises* the score — reports surface danger the static data
+  alone would have rated as safer. `top[].scoreWithoutReports` carries the same
+  value per cell.

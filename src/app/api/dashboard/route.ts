@@ -55,7 +55,14 @@ export async function GET() {
     counts.get(cellAt(cells, i.lat, i.lng).id)!.severity += i.severity;
   }
 
-  // worst first: lowest safety score is the most dangerous place
+  // The "before/after" story (task 3.4). Honest version: compare the real score
+  // against what it would be with the whole community-report layer set to zero.
+  // That is not a reconstruction from history — it is an exact counterfactual on
+  // the one factor citizens actually control. Higher score = safer, so removing
+  // reports RAISES the score: reports are surfacing danger the static crime data
+  // alone would have rated as safer.
+  const withoutReports = (c: (typeof cells)[number]) => scoreOf({ ...c, reportRisk: 0 }, hour);
+
   const top = [...cells]
     .map((c) => {
       const n = counts.get(c.id) ?? { reports: 0, seeded: 0, incidents: 0, severity: 0 };
@@ -64,6 +71,7 @@ export async function GET() {
         lat: c.lat,
         lng: c.lng,
         score: scoreOf(c, hour),
+        scoreWithoutReports: withoutReports(c),
         crimeRisk: c.crimeRisk,
         ...n,
       };
@@ -99,6 +107,19 @@ export async function GET() {
   const avgScore = Math.round(
     cells.reduce((sum, c) => sum + scoreOf(c, hour), 0) / (cells.length || 1),
   );
+  const avgScoreWithoutReports = Math.round(
+    cells.reduce((sum, c) => sum + withoutReports(c), 0) / (cells.length || 1),
+  );
+  // where community reports changed the picture most
+  const biggestSwing = top.reduce(
+    (best, c) => {
+      const swing = c.scoreWithoutReports - c.score;
+      return !best || swing > best.swing
+        ? { lat: c.lat, lng: c.lng, swing, score: c.score, without: c.scoreWithoutReports, reports: c.reports }
+        : best;
+    },
+    null as null | { lat: number; lng: number; swing: number; score: number; without: number; reports: number },
+  );
 
   return NextResponse.json({
     hour,
@@ -108,7 +129,9 @@ export async function GET() {
       reports: reports.length,
       seededReports: reports.filter((r) => r.seeded).length,
       avgScore,
+      avgScoreWithoutReports,
     },
+    biggestSwing,
     top,
     weekly,
     categories,

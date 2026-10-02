@@ -28,7 +28,7 @@ withholds geolocation and the service worker will not register.
 | **Prevent** | OSRM alternatives, each scored by averaging cell safety along its geometry — **shortest vs safest** side by side |
 | **Respond** | One-tap SOS that persists locally *before* any network call, dials your primary contact, records audio in chunks, and streams a live pin to the guardian. SOS is a **toggle**; "I'm safe" resolves the session |
 | **Improve** | Anonymous reports with an optional photo, which bump the nearest cells and decay over 7 days at read time |
-| **Govern** | `/dashboard` — hotspot heatmap, top-10 riskiest cells, weekly trend. Reads the same tables routing reads |
+| **Govern** | `/dashboard` — hotspot heatmap, top-10 riskiest cells, weekly trend, and what community reports changed. Reads the same tables routing reads |
 
 Plus: offline app shell and cached safety grid, Web Push (the only channel that
 reaches a guardian whose browser is closed), and an optional magic-link sign-in
@@ -66,6 +66,14 @@ A rate limit that *suppressed* a second tap could kill the one call that matters
   one trigger you'd want in a tunnel is the one that stops working there.
 - **Offline, two-phone tracking and browser push are code-verified only.** No one
   has run them on hardware yet.
+
+## Privacy posture
+
+`reports` has **no `SELECT` policy at all**, and neither does `push_subscriptions`
+— raw reports and push endpoints are reachable only with the service key.
+`guardian_sessions` deliberately has no read policy either; an earlier
+`for select using (true)` would have let any client enumerate every live SOS pin.
+Nothing needs it, because `/api/sos` reads with the service role.
 
 ## Verification
 

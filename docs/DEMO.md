@@ -80,7 +80,16 @@ Switch to airplane mode, reopen the app.
 > heatmap is where it's bad, the top ten is ranked by current risk, and the bars
 > are reports per week. So the dashboard can't drift from what users actually see."
 
-Land on: **"citizens and authorities, one pipeline."**
+Then point at the community-impact block.
+
+> "And here's what the reports are worth. This is the average safety score with
+> community reports counted — 60. Here it is with them removed — 68. Citizen
+> reports are pulling the city average eight points lower, because they are
+> surfacing risk that static crime data alone would have rated as safer. Down
+> here, one report on a single junction took a street from 44 to 22."
+
+Land on: **"citizens and authorities, one pipeline, and the citizens are the
+sensor."**
 
 ---
 
@@ -136,6 +145,7 @@ hide it.
 - [ ] `npm run build && npm start` — **production**, so the service worker registers
 - [ ] Open over **HTTPS** (`cloudflared tunnel --url http://localhost:3000`) or geolocation is dead
 - [ ] `npm run reset:demo && npm run seed` — clean tables before you present
+- [ ] Open `/dashboard` once beforehand to warm it — it loads on demand
 - [ ] Both phones: location permission granted, airplane mode tested
 - [ ] Guardians pre-added on phone A, so the big red button dials a person and not the fallback number
 - [ ] Try SOS → STOP ALERT → SOS once, so the toggle is muscle memory

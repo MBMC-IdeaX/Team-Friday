@@ -91,7 +91,7 @@ export default function LoginPage() {
       {state === "error" && note && <p className="text-xs text-red-400">{note}</p>}
       {state !== "error" && note && <p className="text-xs text-muted-foreground">{note}</p>}
 
-      <Link href="/" className="text-xs text-muted-foreground underline">
+      <Link href="/" className="rounded-lg px-2 py-3 text-center text-xs text-muted-foreground underline">
         ← back to the map
       </Link>
     </main>

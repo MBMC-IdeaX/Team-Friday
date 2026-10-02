@@ -24,7 +24,22 @@ type Top = {
 type Weekly = { weekStart: number; reports: number; incidents: number };
 type Dash = {
   hour: number;
-  stats: { cells: number; incidents: number; reports: number; seededReports: number; avgScore: number };
+  stats: {
+    cells: number;
+    incidents: number;
+    reports: number;
+    seededReports: number;
+    avgScore: number;
+    avgScoreWithoutReports: number;
+  };
+  biggestSwing: null | {
+    lat: number;
+    lng: number;
+    swing: number;
+    score: number;
+    without: number;
+    reports: number;
+  };
   top: Top[];
   weekly: Weekly[];
   categories: Record<string, number>;
@@ -189,7 +204,16 @@ export default function DashboardView() {
               </span>
             </li>
           ))}
-          {!dash && <li className="text-sm text-muted-foreground">Loading…</li>}
+          {!dash && (
+            <li className="text-sm text-muted-foreground">
+              {error ? "Could not load — check the database is seeded." : "Loading…"}
+            </li>
+          )}
+          {dash && dash.top.length === 0 && (
+            <li className="text-sm text-muted-foreground">
+              No cells yet. Run <code className="font-mono">npm run seed</code>.
+            </li>
+          )}
         </ol>
       </section>
 
@@ -229,6 +253,49 @@ export default function DashboardView() {
         </div>
       </section>
 
+      <section className="px-3 pb-4">
+        <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          What community reports change
+        </h2>
+        {dash && (
+          <>
+            <div className="space-y-1 rounded-xl bg-black/60 px-3 py-3 text-xs backdrop-blur">
+              <ScoreBar label="With community reports" value={dash.stats.avgScore} color={scoreColor(dash.stats.avgScore)} />
+              <ScoreBar
+                label="Without them"
+                value={dash.stats.avgScoreWithoutReports}
+                color={scoreColor(dash.stats.avgScoreWithoutReports)}
+                muted
+              />
+              <p className="pt-1 text-muted-foreground">
+                Higher is safer. Citizen reports pull the city average{" "}
+                <b className="text-foreground">
+                  {dash.stats.avgScoreWithoutReports - dash.stats.avgScore} points
+                </b>{" "}
+                lower — they are surfacing risk the static crime data alone would have
+                rated as safer.
+              </p>
+            </div>
+            {dash.biggestSwing && dash.biggestSwing.swing > 0 && (
+              <p className="mt-1 rounded-xl bg-black/60 px-3 py-2 font-mono text-[11px] text-muted-foreground backdrop-blur">
+                most affected {dash.biggestSwing.lat.toFixed(3)},{" "}
+                {dash.biggestSwing.lng.toFixed(3)}:{" "}
+                <b style={{ color: scoreColor(dash.biggestSwing.without) }}>
+                  {dash.biggestSwing.without}
+                </b>{" "}
+                →{" "}
+                <b style={{ color: scoreColor(dash.biggestSwing.score) }}>
+                  {dash.biggestSwing.score}
+                </b>{" "}
+                after {dash.biggestSwing.reports} report
+                {dash.biggestSwing.reports === 1 ? "" : "s"}
+              </p>
+            )}
+          </>
+        )}
+        {!dash && <p className="text-sm text-muted-foreground">Loading…</p>}
+      </section>
+
       <section className="px-3 pb-6">
         <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           What people are reporting
@@ -253,6 +320,31 @@ export default function DashboardView() {
           </p>
         )}
       </section>
+    </div>
+  );
+}
+
+function ScoreBar({
+  label,
+  value,
+  color,
+  muted,
+}: {
+  label: string;
+  value: number;
+  color?: string;
+  muted?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-32 shrink-0 text-[11px] text-muted-foreground">{label}</span>
+      <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/10">
+        <div
+          className={`h-full rounded-full ${muted ? "opacity-40" : ""}`}
+          style={{ width: `${value}%`, background: color }}
+        />
+      </div>
+      <span className="w-6 text-right font-mono">{value}</span>
     </div>
   );
 }

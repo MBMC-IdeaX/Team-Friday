@@ -301,7 +301,7 @@ export default function MapView() {
         <span className="font-semibold">HerGuardian</span>
         <button
           onClick={() => router.push("/login")}
-          className="text-xs text-muted-foreground underline"
+          className="-my-2 rounded-lg px-2 py-2 text-xs text-muted-foreground underline"
         >
           sign in (optional)
         </button>
