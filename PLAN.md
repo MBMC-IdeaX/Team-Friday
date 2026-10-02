@@ -57,9 +57,9 @@ flowchart LR
 - **OSRM** — public demo server first, self-hosted Docker profile if time allows
 - **AGENTS.md rules file** — pitch, stack, look, "no new libraries without asking", "fake data marked // FAKE"
 
-### Data model (4 tables — supabase/schema.sql is authoritative)
+### Data model (4 tables + 1 planned — supabase/schema.sql is authoritative)
 
-`safety_cells` (grid lat/lng + crime/report/lighting/crowd factors, `report_bumped_at` for read-time 7-day decay) · `reports` (anonymous, `seeded` flag, no public read) · `incidents` (seeded history with `source` provenance) · `guardian_sessions` (SOS session = status + latest pin + `media_paths[]`; uuid is the capability — no auth in MVP). Private storage buckets `recordings`, `report-photos` (service-role only, signed URLs out). RLS: public read cells/incidents, anon insert reports/sessions, reports never publicly readable. Score stays in TS (`src/lib/safety.ts`); DB stores factors only — no PostGIS, no triggers (report→cell bump happens in `/api/report`).
+`safety_cells` (grid lat/lng + crime/report/lighting/crowd factors, `report_bumped_at` for read-time 7-day decay) · `reports` (anonymous, `seeded` flag, no public read) · `incidents` (seeded history with `source` provenance) · `guardian_sessions` (SOS session = status + latest pin + `media_paths[]`; uuid is the capability — no auth in MVP) · `push_subscriptions` (Web Push endpoints — planned for §5 step S.6, not yet in `schema.sql`). Private storage buckets `recordings`, `report-photos` (service-role only, signed URLs out). RLS: public read cells/incidents, anon insert reports/sessions, reports never publicly readable. Score stays in TS (`src/lib/safety.ts`); DB stores factors only — no PostGIS, no triggers (report→cell bump happens in `/api/report`).
 
 ---
 
@@ -78,7 +78,7 @@ flowchart LR
 
 **Team split (4):** frontend-map · backend/Supabase · scoring+data seed · dashboard+pitch. One agent session per person, one branch each, commit after every working step.
 
-**Cut list (don't build):** ML training, native app, real SMS provider (use `tel:`/`sms:` links), full auth (magic link only), background SOS when tab closed (state the PWA limitation honestly).
+**Cut list (don't build):** ML training, native app, real SMS provider (use `tel:`/`sms:` links), full auth (magic link only), background SOS when tab closed (state the PWA limitation honestly), offline routing (needs a road graph), offline voice trigger (Web Speech is cloud-based). See §5.
 
 ---
 
@@ -174,3 +174,82 @@ flowchart LR
 
 **Critical path:** 1.2 → 1.4 → 1.5 (C then A) — everything else parallelizes.
 **Cut order if behind:** 3.4 chart → voice (2.4) → auto-record (2.5) → magic-link auth. Never cut: core loop + SOS.
+
+---
+
+## 5. SOS + offline plan (authoritative)
+
+**Decision: local-first SOS. The network is an accelerator, never a gate.**
+
+Supersedes §4 tasks 2.1–2.5 (mapping: S.3+S.4 → 2.1/2.2/2.3, S.7 → 2.5, S.8 → 2.4). Phase 3 tasks 3.1 UI and 3.3/3.4 (dashboard) **slip** behind this.
+
+### Why — a panic button fails five different ways, and only one of them is the button
+
+| # | Failure | Reality |
+|---|---|---|
+| 1 | No network | every `fetch("/api/sos")` fails; nothing is recorded |
+| 2 | Screen off / page suspended | JS throttled or frozen — `watchPosition` stops, `MediaRecorder` stalls |
+| 3 | Guardian's tab is closed | Supabase Realtime has no listener; the pin goes nowhere |
+| 4 | App never installed (iOS) | iOS exposes Web Push **only** to Home-Screen web apps (16.4+) |
+| 5 | Battery saver / low battery | Wake Lock denied, timers throttled |
+
+The press itself never fails — it is a foreground gesture on a device the user is holding. So the fix is to stop everything *after* the press from depending on the network.
+
+### Press order — each step independent of the previous one succeeding
+
+1. **IndexedDB write first.** Never `await` a network call before it. This *is* "the button fired".
+2. **`tel:` / `navigator.share` → `sms:`.** OS-level, offline-proof.
+3. **Wake Lock + `AudioContext` siren.** No assets, no network. The lock dies when the tab hides — re-acquire on `visibilitychange`.
+4. **`watchPosition`** → pin `PATCH` every 5s, and into IndexedDB.
+5. **Then** alert guardians (Realtime / push). Best-effort; queued on failure.
+6. **Flush** the outbox on `online` and on mount.
+
+A conventional implementation does 5 before 1. That is precisely why it doesn't fire.
+
+### Guardian channels, ranked by how often they land
+
+| Channel | Reaches guardian with tab closed? | Needs victim's data? | Cost |
+|---|---|---|---|
+| `tel:` / `sms:` OS share sheet | yes | **no** | zero |
+| Web Push (installed + permission granted) | yes | **no** — push is server→guardian, so a victim with no signal can still alert someone | 1 dep + VAPID + 5th table |
+| Supabase Realtime **Broadcast** | no (page must be open) | yes | zero — `supabase-js` already installed |
+| Real SMS via Twilio | yes | no | paid key — cut (§2) |
+
+Realtime **Broadcast** on topic `sos:<uuid>`, not Postgres Changes — Broadcast needs no `alter publication supabase_realtime` step. The latest pin is still persisted to `guardian_sessions` for reload-safety, as `schema.sql` intends.
+
+Guardian phone numbers are stored **on the device**, so the SOS screen's Message button is a prefilled `sms:` carrying coordinates + the `/guard/<uuid>` link — it reaches a guardian with our entire stack switched off.
+
+### Offline capability, honestly bounded
+
+| Feature | Offline | Why |
+|---|---|---|
+| Risk colouring of your area | yes | ~30KB of cells — trivial to cache |
+| `tel:` / `sms:` SOS | yes | OS-level |
+| Last known position | yes | kept locally regardless |
+| Anonymous report | yes, queued | a report filed underground is a report that exists |
+| Auto-record | record yes, upload queued | MediaRecorder is local; blob flushes on reconnect |
+| **Turn-by-turn safest route** | **no** | OSRM is a network call; offline routing needs a road graph (~100MB+) |
+| **Voice trigger** | **no** | Web Speech recognition is cloud-based in Chrome |
+
+**Ceilings we state out loud:** nothing fires from a locked screen or a fully killed app — only a native build fixes that, and `tel:` is the floor. A recording is whatever reached IndexedDB before the OS froze the page.
+
+**Pitch line:** *offline it still tells you which direction is safer and still lets you call for help; it can't route you there.*
+
+### Tasks
+
+| # | Task | Files | Done when |
+|---|---|---|---|
+| S.0 | Supabase project + schema + real seed from `buildCells()` | `.env.local`, `scripts/seed.mjs` | `/api/cells` returns `source: "db"` |
+| S.1 | Offline shell | `public/sw.js`, `src/components/sw-register.tsx`, `layout.tsx` | offline DevTools → shell renders, map still coloured from cached cells |
+| S.2 | Local-first outbox | `src/lib/idb.ts`, `src/lib/net.ts` | offline report flushes on reconnect; `node --test` green |
+| S.3 | Panic button | `src/app/api/sos/route.ts`, `src/app/sos/page.tsx`, `map-view.tsx` | airplane mode → tap SOS → screen + siren + `tel:`/`sms:` all work; row lands after reconnect |
+| S.4 | Guardian layers | `src/lib/realtime.ts`, `src/app/guard/[id]/page.tsx`, `src/lib/map-style.ts` | phone A taps SOS → phone B pin moves; reload keeps last position |
+| S.6 | Web Push | `web-push` dep, VAPID, `push_subscriptions` (5th table) | guardian with the tab closed still gets the alert |
+| S.7 | Auto-record → Storage | `src/app/sos/page.tsx` | file appears in the `recordings` bucket |
+| S.8 | Voice trigger | `src/app/sos/page.tsx` | "help me" fires SOS (online only) |
+
+**New deps this phase:** `web-push` (approved) — nothing else. Service worker, IndexedDB wrapper, siren and share are hand-rolled on platform APIs. Background Sync is skipped: Chromium-only (no Safari, no Firefox), and `online` + IndexedDB is both shorter and cross-browser.
+
+**New env vars:** `NEXT_PUBLIC_SUPABASE_URL` · `SUPABASE_SERVICE_ROLE_KEY` (server-only) · `NEXT_PUBLIC_SUPABASE_ANON_KEY` (publishable — safe in the browser, used by the Realtime subscription).
+
+**Deferred by this plan:** report form UI (3.1) and the authorities dashboard (3.3/3.4). `push_subscriptions` is added to `supabase/schema.sql` when S.6 lands, not before — no speculative schema in the initial paste.
