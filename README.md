@@ -6,6 +6,21 @@ guardian tracking, recording — with every user report feeding back into the sc
 
 The loop: **Predict → Prevent → Respond → Improve → Govern.**
 
+## Status
+
+All 31 items in `PLAN.md` are built. Verified: 13 tests, 33 API/realtime assertions
+against the real database, production build, hydration clean on all 7 pages, no
+horizontal overflow and no tap target under 32px at 390×844 and 360×640.
+
+**Not yet verified — and worth saying out loud before you demo:**
+
+- Offline behaviour, two-phone live tracking and browser push are **code-verified
+  only**. No one has run them on hardware.
+- There is **no public deploy**; the app is reached over the LAN.
+
+Needs people, not code: pitch rehearsal, a backup video, a human diff review, and
+the Vercel deploy (task 0.4).
+
 ## Try it
 
 ```bash

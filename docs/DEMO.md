@@ -74,7 +74,24 @@ Switch to airplane mode, reopen the app.
 > The basemap goes grey, because we deliberately
 > don't cache map tiles. The overlay is the product."
 
-## 1:55 — Authority view
+## 1:55 — Help & rights (fast, only if time)
+
+Tap **Help** in the bottom bar.
+
+> "Every number here was checked against nepalpolice.gov.np or nwchelpline.gov.np
+> and names its source. The nearby hospitals and police stations are queried live
+> from OpenStreetMap — we deliberately did not hardcode a list, because a
+> plausible-looking wrong number in a safety app is worse than no number at all."
+
+Tap **Rights**.
+
+> "And this is what she is legally entitled to in Nepal — eleven entries, each one
+> citing its statute. You can complain to the police, the Women's Commission or your
+> local body, and the police must produce the perpetrator within 24 hours. There's
+> an interim protection order that can keep her in her own home. It also says where
+> the law is still weak, because a system with real gaps is one you plan around."
+
+## 2:00 — Authority view
 
 > "One dataset, two audiences. This is the same table the routing reads. The
 > heatmap is where it's bad, the top ten is ranked by current risk, and the bars
@@ -90,6 +107,9 @@ Then point at the community-impact block.
 
 Land on: **"citizens and authorities, one pipeline, and the citizens are the
 sensor."**
+
+Total is about 2:30 with the help section. If you're running long, cut it — the
+demo is the map, the route, the report and the SOS.
 
 ---
 
@@ -147,6 +167,8 @@ hide it.
 - [ ] `npm run reset:demo && npm run seed` — clean tables before you present
 - [ ] Open `/dashboard` once beforehand to warm it — it loads on demand
 - [ ] Both phones: location permission granted, airplane mode tested
+- [ ] `/help` will only load nearby facilities **online** — the hotlines work regardless
+- [ ] Bottom bar (Map · Guardians · Rights · Help) is how you move between sections
 - [ ] Guardians pre-added on phone A, so the big red button dials a person and not the fallback number
 - [ ] Try SOS → STOP ALERT → SOS once, so the toggle is muscle memory
 - [ ] Backup video recorded

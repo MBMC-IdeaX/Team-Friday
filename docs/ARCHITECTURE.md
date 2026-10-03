@@ -48,6 +48,15 @@ shared verbatim by the server routes and the client. Consequences worth knowing:
 | Offline | `public/sw.js` + `lib/offline.ts` | `bootstrap.tsx` |
 | Audio recording | `api/recording` | `sos/page.tsx`, `lib/offline.ts` |
 | Push alerts | `lib/push-server.ts`, `api/push/*` | `lib/push.ts`, `guard-tracker.tsx` |
+| Voice trigger | — | `lib/voice.ts` |
+| Navigation | — | `components/shell.tsx` → `nav.tsx` |
+| Account | Supabase Auth | `lib/user.ts`, `app/login/page.tsx` |
+| Guardians (on-device) | — | `app/guardians/page.tsx`, `lib/offline.ts` |
+| Rights content | — | `app/rights/page.tsx` |
+| Emergency data | — | `lib/emergency.ts`, `app/help/page.tsx` |
+| Place search | — | `components/place-search.tsx` (Nominatim) |
+| Audio recording | `api/recording` | `sos/page.tsx`, `lib/offline.ts` |
+| Push alerts | `lib/push-server.ts`, `api/push/*` | `lib/push.ts`, `guard-tracker.tsx` |
 | Voice trigger | — | `lib/voice.ts` (client only) |
 
 ## The SOS design, in one paragraph
@@ -89,6 +98,28 @@ required to receive an SOS alert, and no identity is ever linked to SOS events.
 all, so raw reports are readable only with the service key. The ceiling is uuid
 secrecy, and the upgrade path is auth — recorded in `PLAN.md` §5.
 
+## Client-side third-party APIs
+
+Two free, keyless services are called from the browser rather than proxied. Both
+degrade to a stated fallback instead of a broken screen:
+
+| Service | Used for | Why client-side |
+|---|---|---|
+| OpenStreetMap **Nominatim** | place search | debounced 600ms, min 3 chars, per their usage policy |
+| OpenStreetMap **Overpass** | nearby police/hospitals on `/help` | Overpass requires a real `User-Agent`; a server proxy would have to set one, and a browser already sends it |
+
+Keeping these in the client means zero server cost and no API keys, but it also
+means **they only work online.** `/help` is explicit about that: the verified
+national hotlines above them work regardless.
+
+## Where content with consequences lives
+
+`lib/emergency.ts` is the only place a phone number may be written, and every
+entry names the official source it was checked against. `/rights` follows the same
+rule for law: each entry cites its statute and section. Nearby facilities are
+queried live rather than hardcoded — a plausible-looking wrong number in a safety
+app is worse than no number at all.
+
 ## Two deliberate non-choices
 
 **No KYC.** Linking a verified Aadhaar/DigiLocker identity to SOS timestamps and
@@ -107,7 +138,7 @@ trigger that stops working in a tunnel. Built last, on purpose.
 
 ## Dependency count
 
-Deliberately tiny. `web-push` is the only library added during Phase 2, and it earns
+Deliberately tiny. `web-push` is the only library added after the scaffold, and it earns
 it: the service worker, IndexedDB wrapper, siren, and bar chart are all hand-rolled
 on platform APIs. Background Sync was skipped because it is Chromium-only, and
 `online` + IndexedDB is both shorter and cross-browser.
