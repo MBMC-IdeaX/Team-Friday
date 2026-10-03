@@ -5,6 +5,7 @@ export type Route = { id: number; duration: number; distance: number; safety: nu
 export type RoutesRes = { routes: Route[]; shortestId: number; safestId: number; hour: number };
 export type SafetyData = { cells: Cell[]; source: "db" | "fake" };
 export type Journey = { from: { lat: number; lng: number }; to: { lat: number; lng: number }; routes: RoutesRes };
+export type RestoredJourney = { from: Journey["from"]; to: Journey["to"]; value: RoutesRes; savedAt: number; persisted?: boolean };
 export type Saved<T> = { savedAt: number; value: T };
 const CACHE = "hg-v1-map-data";
 const SAFETY_KEY = "/__offline/safety";
@@ -81,6 +82,31 @@ export async function readLastJourney() {
     const saved = await readRouteCache(routeCacheKey(old.from, old.to));
     return saved ? { ...saved, from: old.from as Journey["from"], to: old.to as Journey["to"] } : null;
   } catch { return null; }
+}
+// Map taps round coordinates; allow that sub-metre difference, never a new road route.
+export const sameDestination = (a: Journey["to"], b: Journey["to"]) => Math.abs(a.lat - b.lat) <= 0.00001 && Math.abs(a.lng - b.lng) <= 0.00001;
+export async function findSavedJourney(to: Journey["to"], from?: Journey["from"]): Promise<RestoredJourney | null> {
+  const matches = (journey: Pick<RestoredJourney, "from" | "to">) => sameDestination(journey.to, to) &&
+    (!from || (journey.from.lat === from.lat && journey.from.lng === from.lng));
+  const last = await readLastJourney();
+  if (last && matches(last)) return last;
+  try {
+    const cache = await caches.open(CACHE);
+    const keys = (await cache.keys()).filter(request => new URL(request.url).pathname === "/__offline/routes").slice(-30).reverse();
+    for (const request of keys) {
+      const params = new URL(request.url).searchParams;
+      const point = (name: string) => {
+        const parts = params.get(name)?.split(",");
+        return parts?.length === 2 ? { lat: Number(parts[0]), lng: Number(parts[1]) } : null;
+      };
+      const original = point("from"), destination = point("to");
+      if (!original || !destination || !validPoint(original) || !validPoint(destination)) continue;
+      if (!matches({ from: original, to: destination })) continue;
+      const saved = await readRouteCache(request.url);
+      if (saved) return { ...saved, from: original, to: destination };
+    }
+  } catch { /* cache unavailable: the caller offers an online route instead */ }
+  return null;
 }
 export async function lastRouteDestination(from: { lat: number; lng: number }) {
   const last = await readLastJourney();

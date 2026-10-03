@@ -137,7 +137,7 @@ export default function GuardTracker({ id }: { id: string }) {
         </span>
       </header>
 
-      <div className="absolute bottom-3 left-3 z-10 w-[min(24rem,calc(100vw-1.5rem))] space-y-1 rounded-xl bg-black/70 px-4 py-3 text-xs backdrop-blur">
+      <div className="absolute bottom-3 left-3 z-10 max-h-[50%] w-[min(24rem,calc(100%_-_1.5rem))] space-y-1 overflow-y-auto overscroll-contain rounded-xl bg-black/70 px-4 py-3 text-xs backdrop-blur">
         <div className="font-mono">
           {pin ? `${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}` : "no position yet"}
         </div>

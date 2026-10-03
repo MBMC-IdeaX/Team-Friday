@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fetchJson } from "@/lib/network";
+import { readSavedPlaces, savePlace } from "@/lib/places-cache";
 
 // Place search, so a user can type where they are going instead of hunting for a
 // pin on a map. Geocoding is OpenStreetMap Nominatim — free, no key, and the same
@@ -43,8 +44,13 @@ export function usePlaceSearch(minChars = 3) {
     }
     const controller = new AbortController();
     let cancelled = false;
-    timer.current = setTimeout(() => {
+    timer.current = setTimeout(async () => {
       setSearching(true);
+      if (!navigator.onLine) {
+        const saved = (await readSavedPlaces()).filter(place => place.label.toLowerCase().includes(q.toLowerCase()));
+        if (!cancelled) { setResults(saved); setFailed(saved.length === 0); setSearching(false); }
+        return;
+      }
       const url = new URL(ENDPOINT);
       url.searchParams.set("q", q);
       url.searchParams.set("format", "jsonv2");
@@ -85,6 +91,15 @@ export default function PlaceSearch({
 }) {
   const { query, setQuery, results, searching, failed } = usePlaceSearch();
   const [open, setOpen] = useState(false);
+  const [saved, setSaved] = useState<Place[]>([]);
+  const [offline, setOffline] = useState(false);
+  useEffect(() => {
+    let gone = false;
+    const read = () => { void readSavedPlaces().then(places => { if (!gone) { setSaved(places); setOffline(!navigator.onLine); } }); };
+    read(); addEventListener("online", read); addEventListener("offline", read);
+    return () => { gone = true; removeEventListener("online", read); removeEventListener("offline", read); };
+  }, []);
+  const shown = offline || query.trim().length < 3 ? saved.filter(place => place.label.toLowerCase().includes(query.trim().toLowerCase())) : results;
 
   return (
     <div className="relative">
@@ -97,30 +112,33 @@ export default function PlaceSearch({
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 180)}
         placeholder={placeholder}
-        className="w-full rounded-xl bg-black/70 px-3 py-3 text-sm backdrop-blur"
+        aria-label={placeholder}
+        className="min-w-0 w-full rounded-xl bg-black/70 px-3 py-3 text-base backdrop-blur sm:text-sm"
       />
-      {open && (query.trim().length >= 3 || searching) && (
-        <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl bg-black/90 backdrop-blur">
+      {open && (offline || saved.length > 0 || query.trim().length >= 3 || searching) && (
+        <ul className="relative z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl bg-black/90 backdrop-blur sm:absolute">
+          {(offline || query.trim().length < 3) && shown.length > 0 && <li className="px-3 py-2 text-xs text-muted-foreground">Saved places on this device</li>}
           {searching && results.length === 0 && (
             <li className="px-3 py-2 text-xs text-muted-foreground">Searching…</li>
           )}
-          {results.map((r) => (
+          {shown.map((r) => (
             <li key={`${r.lat},${r.lng}`}>
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   onPick(r);
+                  if (navigator.onLine) void savePlace(r).then(() => readSavedPlaces()).then(setSaved);
                   setQuery(r.label.split(",")[0]);
                   setOpen(false);
                 }}
-                className="block w-full px-3 py-2 text-left text-xs hover:bg-white/10"
+                className="block min-h-11 w-full break-words px-3 py-2 text-left text-xs hover:bg-white/10"
               >
                 {r.label}
               </button>
             </li>
           ))}
-          {!searching && results.length === 0 && failed && (
+          {!searching && shown.length === 0 && (failed || offline) && (
             <li className="px-3 py-2 text-xs text-amber-400">
               Place search needs internet and may be unavailable. Tap the map or reuse a saved destination.
             </li>

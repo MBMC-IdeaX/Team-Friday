@@ -28,7 +28,7 @@ import { bindMapOverlays, type OverlayStatus } from "@/lib/map-overlays";
 import { navigateTo } from "@/lib/navigation";
 import { fetchJson } from "@/lib/network";
 import { watchDeviceLocation, routingOrigin, type DeviceLocation } from "@/lib/location";
-import { readSafetyCache, saveSafetyCache, validSafetyData, loadRoute, readLastJourney, type Route, type RoutesRes } from "@/lib/map-cache";
+import { readSafetyCache, saveSafetyCache, validSafetyData, loadRoute, readLastJourney, findSavedJourney, sameDestination, type RestoredJourney, type Route, type RoutesRes } from "@/lib/map-cache";
 
 const fmtTime = (sec: number) => `${Math.round(sec / 60)} min`;
 const fmtDist = (m: number) => `${(m / 1000).toFixed(1)} km`;
@@ -66,6 +66,8 @@ function RouteCard({ r, label, best }: { r: Route; label: string; best: boolean 
 export default function MapView() {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
+  const fittedToRef = useRef<Picked | null>(null);
   const mapRef = useRef<MLMap | null>(null);
   const overlaysRef = useRef<ReturnType<typeof bindMapOverlays> | null>(null);
   const [overlayStatus, setOverlayStatus] = useState<OverlayStatus>({ stage: "waiting-style", cells: 0, rendered: 0 });
@@ -80,9 +82,14 @@ export default function MapView() {
   const [locationAttempt, setLocationAttempt] = useState(0);
   const [fix, setFix] = useState<DeviceLocation | null>(null);
   const [locationNote, setLocationNote] = useState("Waiting for device location. The initial map center is not your position.");
-  const [savedJourney, setSavedJourney] = useState<Awaited<ReturnType<typeof readLastJourney>>>(null);
+  const [savedJourney, setSavedJourney] = useState<RestoredJourney | null>(null);
+  const displayedJourneyRef = useRef<RestoredJourney | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [destinationLabel, setDestinationLabel] = useState<string | null>(null);
+  const [offline, setOffline] = useState(false);
   const [routeNote, setRouteNote] = useState<string | null>(null);
   const [data, setData] = useState<RoutesRes | null>(null);
+  const [routeStage, setRouteStage] = useState("none");
   const [destScore, setDestScore] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,15 +101,26 @@ export default function MapView() {
   const [voiceNote, setVoiceNote] = useState<string | null>(null);
   const [activeSession, setActiveSession] = useState<string | null>(null);
 
-  const pickDestination = useCallback((next: Picked) => {
+  const pickDestination = useCallback((next: Picked, label = "Point selected on the map") => {
     if (pickedRef.current?.lat === next.lat && pickedRef.current.lng === next.lng) return;
     setSavedJourney(null);
+    displayedJourneyRef.current = null;
+    fittedToRef.current = null;
+    setDestinationLabel(label);
+    setPanelOpen(false);
     pickedRef.current = next;
     setPicked(next);
     setData(null);
     setDestScore(null);
     setError(null);
     setLoading(true);
+  }, []);
+
+  useEffect(() => {
+    const update = () => setOffline(!navigator.onLine);
+    const frame = requestAnimationFrame(update);
+    addEventListener("online", update); addEventListener("offline", update);
+    return () => { cancelAnimationFrame(frame); removeEventListener("online", update); removeEventListener("offline", update); };
   }, []);
 
   // Voice SOS. Arms only from a click, because Web Speech will not start without a
@@ -271,19 +289,23 @@ export default function MapView() {
     const controller = new AbortController();
     const load = async () => {
       const attempt = ++revision;
-      setLoading(true); setError(null); setData(null); setDestScore(null); setRouteNote(null);
+      setLoading(true); setError(null);
       if (savedJourney && savedJourney.to.lat === toLat && savedJourney.to.lng === toLng) {
+        displayedJourneyRef.current = savedJourney;
         setData(savedJourney.value);
-        setRouteNote(`Saved journey · ${new Date(savedJourney.savedAt).toLocaleString()}. Original start: ${savedJourney.from.lat}, ${savedJourney.from.lng}; not your live GPS start. Route and scores may be outdated.`);
+        setRouteNote(`${savedJourney.persisted === false ? "Current journey (not saved on this device)" : "Saved journey"} · ${new Date(savedJourney.savedAt).toLocaleString()}. Original start: ${savedJourney.from.lat}, ${savedJourney.from.lng}; not your live GPS start. Route and scores may be outdated.`);
         setLoading(false); return;
       }
       // Going offline keeps the chosen journey's original start, not a drifting GPS key.
       if (!navigator.onLine && !savedJourney) {
-        const journey = await readLastJourney();
+        const displayed = displayedJourneyRef.current;
+        const journey = displayed && sameDestination(displayed.to, { lat: toLat, lng: toLng }) ? displayed
+          : await findSavedJourney({ lat: toLat, lng: toLng }, origin ? { lat: fromLat!, lng: fromLng! } : undefined);
         if (cancelled || attempt !== revision) return;
-        if (journey && journey.to.lat === toLat && journey.to.lng === toLng &&
+        if (journey && sameDestination(journey.to, { lat: toLat, lng: toLng }) &&
           (!origin || (journey.from.lat === fromLat && journey.from.lng === fromLng))) {
-          setOrigin(journey.from); setSavedJourney(journey); setLoading(false);
+          pickedRef.current = journey.to;
+          setPicked(journey.to); setOrigin(journey.from); setSavedJourney(journey); setLoading(false);
           return;
         }
       }
@@ -294,6 +316,7 @@ export default function MapView() {
       try {
         const result = await loadRoute({ lat: fromLat, lng: fromLng }, { lat: toLat, lng: toLng }, controller.signal);
         if (cancelled || attempt !== revision) return;
+        displayedJourneyRef.current = { value: result.value, savedAt: result.savedAt, from: { lat: fromLat, lng: fromLng }, to: { lat: toLat, lng: toLng }, persisted: result.persisted };
         setData(result.value);
         setRouteNote(result.cached ? `Saved route · ${new Date(result.savedAt).toLocaleString()}. Route and scores may be outdated; basemap tiles and place search need internet.`
           : result.persisted ? null : "Route generated, but could not be saved on this device. Reconnect and retry before using it offline.");
@@ -336,38 +359,74 @@ export default function MapView() {
     overlaysRef.current?.setRoutes(data);
   }, [data]);
 
+  useEffect(() => {
+    if (!data || !picked || !mapReady || !mapRef.current || fittedToRef.current === picked) return;
+    const height = containerRef.current?.clientHeight ?? 0;
+    const width = containerRef.current?.clientWidth ?? 0;
+    if (!height || !width) return;
+    const coords = data.routes.flatMap(route => route.coords);
+    const bounds = coords.reduce((box, [lng, lat]) => [Math.min(box[0], lng), Math.min(box[1], lat), Math.max(box[2], lng), Math.max(box[3], lat)], [Infinity, Infinity, -Infinity, -Infinity]);
+    mapRef.current.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]], {
+      padding: { top: Math.min(40, height * .1), left: Math.min(24, width * .1), right: Math.min(24, width * .1), bottom: Math.min((controlsRef.current?.clientHeight ?? 0) + 16, height * .55) }, duration: 0,
+    });
+    fittedToRef.current = picked; centeredRef.current = true;
+  }, [data, picked, mapReady]);
+
+  // Route-only diagnostics; the working safety overlay is left unchanged.
+  useEffect(() => {
+    const map = mapRef.current;
+    const frame = requestAnimationFrame(() => setRouteStage(data ? "processing" : "none"));
+    if (!map || !data || !mapReady) return () => cancelAnimationFrame(frame);
+    let failed = false;
+    const inspect = () => {
+      if (failed || !["shortest", "safest"].every(id => map.getSource(id) && map.getLayer(id) && map.isSourceLoaded(id))) return;
+      cancelAnimationFrame(frame);
+      clearTimeout(timeout);
+      setRouteStage(map.queryRenderedFeatures({ layers: ["shortest", "safest"] }).length ? "rendered" : "source-ready");
+    };
+    const error = (event: { sourceId?: string; error: { message: string } }) => {
+      if (event.sourceId !== "shortest" && event.sourceId !== "safest") return;
+      failed = true; cancelAnimationFrame(frame); clearTimeout(timeout); setRouteStage("failed");
+    };
+    const timeout = setTimeout(() => { failed = true; setRouteStage("failed"); }, 10_000);
+    map.on("render", inspect); map.on("sourcedata", inspect); map.on("error", error);
+    return () => { cancelAnimationFrame(frame); clearTimeout(timeout); map.off("render", inspect); map.off("sourcedata", inspect); map.off("error", error); };
+  }, [data, mapReady]);
+
   const shortest = data?.routes.find((r) => r.id === data.shortestId);
   const safest = data?.routes.find((r) => r.id === data.safestId);
   const same = data && data.shortestId === data.safestId;
+  const sosButton = (
+    <button onClick={() => (activeSession ? endSession() : navigateTo("/sos", router))}
+      className={`w-full min-h-12 rounded-xl py-4 text-center text-lg font-bold tracking-wide text-white ${activeSession ? "bg-red-950 text-red-300 ring-1 ring-red-500/50" : "bg-red-600"}`}>
+      {activeSession ? "STOP ALERT" : "SOS"}
+    </button>
+  );
 
   return (
-    <div className="relative min-h-0 flex-1">
+    <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
       {/* maplibre's unlayered CSS forces position:relative on .maplibregl-map (beats
           Tailwind layers), and % heights don't resolve against the flex parent —
           inline absolute+inset stretches against the parent's used height instead */}
-      <div ref={containerRef} data-hg-overlay-stage={overlayStatus.stage} data-hg-safety-cells={overlayStatus.cells} data-hg-safety-rendered={overlayStatus.rendered} style={{ position: "absolute", inset: 0 }} />
+      <div ref={containerRef} data-hg-overlay-stage={overlayStatus.stage} data-hg-safety-cells={overlayStatus.cells} data-hg-safety-rendered={overlayStatus.rendered}
+        data-hg-route-stage={routeStage} data-hg-route-points={safest?.coords.length ?? 0} style={{ position: "absolute", inset: 0 }} />
 
-      <header className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-xl bg-black/70 px-3 py-2 backdrop-blur">
+      <header className="absolute left-3 top-3 z-10 hidden items-center gap-2 rounded-xl bg-black/70 px-3 py-2 backdrop-blur sm:flex">
         <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden>
           <path d="M12 2l8 3.5v6c0 5-3.4 9.3-8 10.5-4.6-1.2-8-5.5-8-10.5v-6L12 2z" fill={BRAND} />
           <path d="M8.5 12l2.5 2.5 4.5-5" stroke="#fff" strokeWidth="1.8" fill="none" />
         </svg>
         <span className="font-semibold">HerGuardian</span>
-        <button
-          onClick={() => navigateTo("/login", router)}
-          className="-my-2 rounded-lg px-2 py-2 text-xs text-muted-foreground underline"
-        >
-          sign in (optional)
-        </button>
+        <button onClick={() => navigateTo("/login", router)} className="-my-2 rounded-lg px-2 py-2 text-xs text-muted-foreground underline">sign in (optional)</button>
       </header>
 
-      <div className="absolute bottom-3 left-3 z-10 w-[min(24rem,calc(100vw-1.5rem))] space-y-2">
-        {overlayNote && <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-amber-300">{overlayNote}</p>}
-        {cellsNote && (
-          <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-amber-300">
-            {cellsNote}
-          </p>
-        )}
+      <div ref={controlsRef} className="absolute bottom-3 left-3 z-10 flex max-h-[calc(100%_-_1.5rem)] w-[min(24rem,calc(100%_-_1.5rem))] flex-col gap-2">
+        <button className="flex min-h-11 w-full shrink-0 items-center justify-between gap-2 rounded-xl bg-black/85 px-3 py-2 text-left text-sm sm:hidden"
+          aria-expanded={panelOpen} aria-controls="journey-controls" onClick={() => setPanelOpen(open => !open)}>
+          <span className="min-w-0 truncate">{destinationLabel ?? (picked ? "Selected destination" : "Plan a journey")}</span>
+          <span className="shrink-0 text-xs">{panelOpen ? "Hide" : "Details / Search"}</span>
+        </button>
+        <div className="min-h-0 space-y-2 overflow-y-auto overscroll-contain">
         <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-muted-foreground">
           {locationNote}{" "}
           <button className="underline" onClick={() => {
@@ -376,6 +435,14 @@ export default function MapView() {
             setLocationAttempt(value => value + 1);
           }}>Retry GPS</button>
         </p>
+        {offline && <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-amber-300">Offline · saved routes only. Map coverage is limited to previously viewed tiles.</p>}
+        {routeStage === "failed" && <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-amber-300">The route could not be drawn. Reopen the saved journey or reconnect and retry.</p>}
+        {!panelOpen && error && <p role="alert" className="rounded-xl bg-red-950/90 px-3 py-2 text-xs sm:hidden">{error}</p>}
+        {!panelOpen && loading && <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs sm:hidden">Scoring routes…</p>}
+        {!panelOpen && savedJourney && <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-amber-300 sm:hidden">{savedJourney.persisted === false ? "Current journey · not saved on this device." : "Historical journey · original saved start, not live GPS."} Route and scores may be outdated.</p>}
+        <div id="journey-controls" className={`${panelOpen ? "block" : "hidden"} max-h-[45dvh] space-y-2 overflow-y-auto overscroll-contain rounded-xl sm:block sm:max-h-[65dvh]`}>
+        {overlayNote && <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-amber-300">{overlayNote}</p>}
+        {cellsNote && <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-amber-300">{cellsNote}</p>}
         {fix && cells.length > 0 && !cells.some(c => Math.abs(c.lat - fix.lat) < 0.006 && Math.abs(c.lng - fix.lng) < 0.006) && (
           <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-amber-300">No safety-cell coverage near your location. Available dots cover the Kathmandu dataset only.</p>
         )}
@@ -383,7 +450,9 @@ export default function MapView() {
           const journey = await readLastJourney();
           if (!journey) { setError("No saved journey is available. Generate a route online first."); return; }
           pickedRef.current = journey.to;
-          setPicked(journey.to); setOrigin(journey.from); setSavedJourney(journey);
+          setPicked(journey.to); setOrigin(journey.from); setSavedJourney(journey); setData(journey.value);
+          displayedJourneyRef.current = journey;
+          setDestinationLabel("Saved journey destination"); setPanelOpen(false);
           centeredRef.current = true;
           setError(null); setDestScore(null);
           const coords = journey.value.routes.flatMap(route => route.coords);
@@ -395,29 +464,22 @@ export default function MapView() {
         <div className="space-y-1.5">
           <PlaceSearch
             placeholder="Go to (e.g. Ring Road, Thamel)"
-            onPick={(r) => pickDestination({ lat: r.lat, lng: r.lng })}
+            onPick={(r) => pickDestination({ lat: r.lat, lng: r.lng }, r.label)}
           />
           <PlaceSearch
             placeholder="Start from (defaults to you)"
-            onPick={(r) => { setSavedJourney(null); setOrigin({ lat: r.lat, lng: r.lng }); }}
+            onPick={(r) => { displayedJourneyRef.current = null; fittedToRef.current = null; setData(null); setSavedJourney(null); setOrigin({ lat: r.lat, lng: r.lng }); }}
           />
           {origin && (
             <button
-              onClick={() => { setSavedJourney(null); setOrigin(null); }}
+              onClick={() => { displayedJourneyRef.current = null; fittedToRef.current = null; setData(null); setSavedJourney(null); setOrigin(null); }}
               className="w-full rounded-lg bg-black/70 px-2 py-1.5 text-[11px] text-muted-foreground"
             >
               Using a fixed start point · tap to go back to your location
             </button>
           )}
         </div>
-        <button
-          onClick={() => (activeSession ? endSession() : navigateTo("/sos", router))}
-          className={`w-full rounded-xl py-4 text-center text-lg font-bold tracking-wide text-white ${
-            activeSession ? "bg-red-950 text-red-300 ring-1 ring-red-500/50" : "bg-red-600"
-          }`}
-        >
-          {activeSession ? "STOP ALERT" : "SOS"}
-        </button>
+        <div className="hidden sm:block">{sosButton}</div>
         {activeSession && (
           <button
             onClick={endSession}
@@ -426,7 +488,7 @@ export default function MapView() {
             I&apos;m safe — end this session
           </button>
         )}
-        <div className="flex gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <button
             onClick={toggleVoice}
             className={`flex-1 rounded-xl px-3 py-3 text-sm backdrop-blur ${
@@ -441,12 +503,7 @@ export default function MapView() {
           >
             Report a spot
           </button>
-          <button
-            onClick={() => navigateTo("/dashboard", router)}
-            className="flex-1 rounded-xl bg-black/70 px-3 py-3 text-sm backdrop-blur"
-          >
-            Authority view
-          </button>
+          <button onClick={() => navigateTo("/dashboard", router)} className="hidden rounded-xl bg-black/70 px-3 py-3 text-sm backdrop-blur sm:block">Authority view</button>
         </div>
         {reporting && (picked || fix) && (
           <ReportSheet
@@ -490,6 +547,9 @@ export default function MapView() {
         {data && !same && shortest && shortest.id !== safest?.id && (
           <RouteCard r={shortest} label="Shortest route" best={false} />
         )}
+        </div>
+        </div>
+        <div className="shrink-0 sm:hidden">{sosButton}</div>
       </div>
     </div>
   );

@@ -9,9 +9,9 @@ import { NavBar, TopBar } from "@/components/nav";
 
 export default function AppChrome({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-full flex-col">
+    <div className="flex h-dvh min-w-0 flex-col overflow-hidden">
       <TopBar />
-      <div className="flex-1 pb-16">{children}</div>
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(4rem_+_env(safe-area-inset-bottom))]">{children}</div>
       <NavBar />
     </div>
   );

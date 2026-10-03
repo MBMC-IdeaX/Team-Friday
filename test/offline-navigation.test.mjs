@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 const origin = 'https://herguardian.test';
-function worker({ badModule = false, realModules = false } = {}) {
+function worker({ badModule = false, realModules = false, tileResponse } = {}) {
   const stores = new Map(), events = new Map(), fetched = [];
   let online = true, skipped = false;
   const key = value => new URL(typeof value === 'string' ? value : value.url, origin).href;
@@ -15,7 +15,8 @@ function worker({ badModule = false, realModules = false } = {}) {
       const response = entries.get(key(request));
       if (response?.headers.has('Vary') && !options?.ignoreVary) return undefined;
       return response?.clone();
-    }, async put(request, response) { entries.set(key(request), response.clone()); } };
+    }, async put(request, response) { entries.set(key(request), response.clone()); },
+    async keys() { return [...entries.keys()].map(url => ({ url })); }, async delete(request) { return entries.delete(key(request)); } };
   }, async keys() { return [...stores.keys()]; }, async delete(name) { return stores.delete(name); } };
   const self = { location: { origin }, navigator: { get onLine() { return online; } },
     addEventListener(name, fn) { events.set(name, fn); }, async skipWaiting() { skipped = true; }, clients: { async claim() {} } };
@@ -23,6 +24,7 @@ function worker({ badModule = false, realModules = false } = {}) {
     fetch: async request => {
       if (!online) throw new Error('offline');
       const url = new URL(typeof request === 'string' ? request : request.url, origin); fetched.push(url.pathname);
+      if (url.origin === 'https://tile.openstreetmap.org') return tileResponse ? tileResponse() : new Response(fs.readFileSync('public/icon-192.png'), { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=604800' } });
       if (url.pathname.endsWith('.mjs')) return new Response(realModules ? fs.readFileSync(`public${url.pathname}`) : badModule ? '<html>not a module</html>' : 'import "./maplibre-gl-shared.mjs";', {
         headers: { 'Content-Type': badModule ? 'text/html' : 'application/javascript', Vary: 'Origin' },
       });
@@ -47,6 +49,50 @@ test('install prepares every public page and recursive scripts/fonts without pre
     assert.equal(response.status, 200); assert.ok((await response.text()).includes(`<h1>${path}</h1>`));
   }
 });
+
+const tile = 'https://tile.openstreetmap.org/14/12000/6800.png';
+test('only viewed PNG tiles are cached, reused online/offline, with no install prefetch', async () => {
+  const w = worker(); await w.context.prepareOfflinePages();
+  assert.equal(w.fetched.some(path => /^\/\d+\/\d+\/\d+\.png$/.test(path)), false);
+  const request = { url: tile, method: 'GET', mode: 'cors' }; let pending;
+  w.events.get('fetch')({ request, respondWith(p) { pending = p; } });
+  assert.ok(pending); assert.equal((await pending).status, 200);
+  await w.context.viewedTile(request);
+  assert.equal(w.fetched.filter(path => path === '/14/12000/6800.png').length, 1);
+  w.setOffline(); const saved = await w.context.viewedTile(request);
+  assert.deepEqual(Buffer.from(await saved.arrayBuffer()), fs.readFileSync('public/icon-192.png'));
+  assert.equal((await w.context.viewedTile({ url: tile.replace('6800', '6801') })).status, 503);
+  let intercepted = false;
+  w.events.get('fetch')({ request: { ...request, url: tile + '?unexpected=1' }, respondWith() { intercepted = true; } });
+  assert.equal(intercepted, false);
+});
+
+test('tile cache has a strict bound and upgrade preserves both tiles and metadata', async () => {
+  const w = worker();
+  for (let i = 0; i < 205; i++) await w.context.viewedTile({ url: tile.replace('6800', String(6800 + i)) });
+  const tiles = await w.caches.open('hg-v1-viewed-tiles');
+  const metadata = await w.caches.open('hg-v1-viewed-tile-metadata');
+  assert.equal((await tiles.keys()).length, 200); assert.equal((await metadata.keys()).length, 200);
+  assert.equal(await tiles.match(tile), undefined);
+  let activation; w.events.get('activate')({ waitUntil(p) { activation = p; } }); await activation;
+  w.setOffline(); assert.equal((await w.context.viewedTile({ url: tile.replace('6800', '7004') })).status, 200);
+});
+
+for (const response of [() => new Response('<html>no tile</html>', { headers: { 'Content-Type': 'image/png' } }),
+  () => new Response('not an image', { headers: { 'Content-Type': 'text/html' } }),
+  () => new Response(fs.readFileSync('public/icon-192.png'), { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' } })]) {
+  test('invalid or non-storable tile responses do not become saved map coverage', async () => {
+    const w = worker({ tileResponse: response }); await w.context.viewedTile({ url: tile });
+    assert.equal(await (await w.caches.open('hg-v1-viewed-tiles')).match(tile), undefined);
+  });
+}
+
+test('expired must-revalidate tile is fetched online and unavailable offline rather than served against its policy', async () => {
+  const w = worker({ tileResponse: () => new Response(fs.readFileSync('public/icon-192.png'), { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'max-age=0, must-revalidate' } }) });
+  await w.context.viewedTile({ url: tile }); await w.context.viewedTile({ url: tile });
+  assert.equal(w.fetched.length, 2); w.setOffline();
+  assert.equal((await w.context.viewedTile({ url: tile })).status, 503);
+});
 test('offline unknown/dynamic routes never receive another page or expose a cached session', async () => {
   const w = worker(); await w.context.prepareOfflinePages(); w.setOffline();
   for (const path of ['/guard/session-id', '/dashboard', '/unknown']) {
@@ -63,7 +109,7 @@ test('Next server-component requests are never answered with cached page HTML', 
 test('upgrade removes obsolete app caches and preserves actual safety/journey records and unrelated caches', async () => {
   const w = worker();
   await w.context.prepareOfflinePages();
-  for (const name of ['hg-v1-shell', 'hg-v1-shell-pages-v2', 'hg-v1-data', 'hg-v1-map-data', 'unrelated-app']) await w.caches.open(name);
+  for (const name of ['hg-v1-shell', 'hg-v1-shell-pages-v2', 'hg-v1-shell-pages-v3', 'hg-v1-data', 'hg-v1-map-data', 'hg-v1-viewed-tiles', 'hg-v1-viewed-tile-metadata', 'unrelated-app']) await w.caches.open(name);
   const saved = { savedAt: 123, value: { cells: ['saved factors'], journey: ['saved geometry'] } };
   const data = await w.caches.open('hg-v1-map-data'); await data.put('/__offline/safety', Response.json(saved));
   await data.put('/__offline/last-route', Response.json(saved));
@@ -71,7 +117,8 @@ test('upgrade removes obsolete app caches and preserves actual safety/journey re
   let activation; w.events.get('activate')({ waitUntil(promise) { activation = promise; } }); await activation;
   assert.equal(w.stores.has('hg-v1-shell'), false);
   assert.equal(w.stores.has('hg-v1-shell-pages-v2'), false);
-  for (const name of ['hg-v1-shell-pages-v3', 'hg-v1-data', 'hg-v1-map-data', 'unrelated-app']) assert.ok(w.stores.has(name));
+  assert.equal(w.stores.has('hg-v1-shell-pages-v3'), false);
+  for (const name of ['hg-v1-shell-pages-v4', 'hg-v1-data', 'hg-v1-map-data', 'hg-v1-viewed-tiles', 'hg-v1-viewed-tile-metadata', 'unrelated-app']) assert.ok(w.stores.has(name));
   for (const key of ['/__offline/safety', '/__offline/last-route']) assert.deepEqual(await (await data.match(key)).json(), saved);
   assert.deepEqual(await (await (await w.caches.open('hg-v1-data')).match('/api/cells')).json(), saved);
 });
@@ -139,7 +186,7 @@ test('HTML disguised as a worker module prevents activation instead of becoming 
 
 test('invalid cached worker MIME is refreshed instead of returned as JavaScript', async () => {
   const w = worker();
-  const cache = await w.caches.open('hg-v1-shell-pages-v3');
+  const cache = await w.caches.open('hg-v1-shell-pages-v4');
   await cache.put('/maplibre-gl-worker.mjs', new Response('<html>old response</html>', { headers: { 'Content-Type': 'text/html' } }));
   const response = await w.context.cacheFirst(w.request('/maplibre-gl-worker.mjs'));
   assert.match(response.headers.get('Content-Type'), /javascript/);

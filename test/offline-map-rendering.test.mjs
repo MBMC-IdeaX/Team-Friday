@@ -13,7 +13,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
 // Only the DOM, geolocation device and MapLibre renderer are test doubles.
 function mounted({ online = false, workerWorks = true, rejectWrite = () => false } = {}) {
   const slots = [], pending = [], modules = new Map(), entries = new Map(), listeners = new Map(), requests = [];
-  const maps = [];
+  const maps = [], markers = [];
   let cursor = 0, dirty = true, tree, Component, gps, timedOut;
   const same = (a, b) => a && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
   const react = {
@@ -44,7 +44,7 @@ function mounted({ online = false, workerWorks = true, rejectWrite = () => false
     off(name, fn) { this.events.get(name)?.delete(fn); }
     emit(name, event = {}) { for (const fn of [...(this.events.get(name) ?? [])]) fn(event); }
     addControl() {} resize() {} jumpTo() {} remove() {}
-    fitBounds(bounds) { this.bounds = bounds; }
+    fitBounds(bounds, options) { this.bounds = bounds; this.fitOptions = options; }
     addSource(id, options) {
       const source = { data: options.data, loaded: false, updates: [], setData(data) {
         this.data = data; this.updates.push(data); this.loaded = false;
@@ -60,11 +60,12 @@ function mounted({ online = false, workerWorks = true, rejectWrite = () => false
     loadStyle() { this.emit('style.load'); }
     replaceStyle() { this.emit('styledataloading'); this.sources.clear(); this.layers.clear(); this.loadStyle(); }
   }
-  class Marker { setLngLat(point) { this.point = point; return this; } addTo() { return this; } remove() {} }
+  class Marker { constructor(options) { this.options = options; markers.push(this); } setLngLat(point) { this.point = point; return this; } addTo() { return this; } remove() {} }
   const navigator = { onLine: online };
   const caches = { async open() { return {
-    async match(key) { return entries.get(key)?.clone(); },
+    async match(key) { if (key.startsWith('https://')) key = new URL(key).pathname + new URL(key).search; return entries.get(key)?.clone(); },
     async put(key, value) { if (rejectWrite(key)) throw new Error('storage unavailable'); entries.set(key, value.clone()); },
+    async keys() { return [...entries.keys()].map(key => ({ url: 'https://example.test' + key })); },
   }; } };
   function load(file) {
     if (modules.has(file)) return modules.get(file);
@@ -88,9 +89,11 @@ function mounted({ online = false, workerWorks = true, rejectWrite = () => false
     };
     vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-    }).outputText, { exports, require, navigator, caches, Response, AbortController, AbortSignal,
+    }).outputText, { exports, require, navigator, caches, Response, URL, Error, AbortController, AbortSignal,
       process: { env: { NODE_ENV: 'production' } }, ResizeObserver: class { observe() {} disconnect() {} },
       setInterval() { return 1; }, clearInterval() {},
+      requestAnimationFrame(fn) { const frame = {}; queueMicrotask(() => { if (!frame.cancelled) fn(); }); return frame; },
+      cancelAnimationFrame(frame) { if (frame) frame.cancelled = true; },
       setTimeout(fn, ms) { if (ms === 10_000) { timedOut = fn; return 0; } return setTimeout(fn, ms); }, clearTimeout,
       addEventListener(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn); },
       removeEventListener(name, fn) { listeners.get(name)?.delete(fn); },
@@ -109,12 +112,12 @@ function mounted({ online = false, workerWorks = true, rejectWrite = () => false
   Component = load('src/components/map-view.tsx').default;
   return {
     cache: load('src/lib/map-cache.ts'), entries, requests,
-    get map() { return maps[0]; }, get tree() { return tree; },
+    get map() { return maps[0]; }, get tree() { return tree; }, markers,
     async flush() {
       for (let i = 0; i < 30; i++) {
         if (dirty) {
           dirty = false; cursor = 0; tree = Component();
-          walk(tree, node => { if (node.props?.ref) node.props.ref.current ??= {}; });
+          walk(tree, node => { if (node.props?.ref) node.props.ref.current ??= { clientHeight: node.props['data-hg-overlay-stage'] ? 600 : 180, clientWidth: 360 }; });
           while (pending.length) pending.shift()();
         }
         await new Promise(resolve => setImmediate(resolve));
@@ -150,6 +153,69 @@ for (const styleFirst of [false, true]) test(`offline MapView feeds valid cached
   assert.deepEqual(plain(app.map.getSource('cells').data), expected);
   assert.equal(app.map.getLayer('cells').type, 'circle');
   assert.deepEqual(app.requests, []);
+});
+
+test('loss of network preserves an already-visible journey even if both persistence writes failed', async t => {
+  const app = mounted({ online: true, rejectWrite: key => key.includes('route') }); t.after(() => app.dispose());
+  await app.flush(); app.map.loadStyle(); app.locate(from); await app.flush();
+  app.map.emit('click', { lngLat: to }); await app.flush();
+  const before = plain(app.map.getSource('safest').data.geometry.coordinates);
+  app.network(false); app.locate({ lat: from.lat + .0005, lng: from.lng + .0005 }); await app.flush();
+  assert.deepEqual(plain(app.map.getSource('safest').data.geometry.coordinates), before);
+  assert.match(app.text(), /Current journey \(not saved on this device\)/);
+  assert.equal(app.requests.filter(url => url.startsWith('/api/routes')).length, 1);
+});
+
+test('offline map-tap reuses a saved route from a previous destination, despite live GPS drift', async t => {
+  const app = mounted({ online: true }); t.after(() => app.dispose());
+  await app.cache.loadRoute(from, to, new AbortController().signal);
+  await app.cache.loadRoute(from, { lat: 27.72, lng: 85.32 }, new AbortController().signal);
+  app.network(false); app.requests.length = 0;
+  await app.flush(); app.map.loadStyle(); app.locate({ lat: 27.701, lng: 85.301 }); await app.flush();
+  app.map.emit('click', { lngLat: { lat: to.lat + .000004, lng: to.lng + .000004 } }); await app.flush();
+  assert.deepEqual(plain(app.map.getSource('safest').data.geometry.coordinates), routes.routes[0].coords);
+  assert.ok(app.markers.some(marker => marker.point?.[0] === to.lng && marker.point?.[1] === to.lat));
+  assert.match(app.text(), /Point selected on the map/);
+  assert.match(app.text(), /Original start: 27.7, 85.3/);
+  assert.deepEqual(app.requests, []);
+});
+
+test('offline map-tap without any saved journey shows a marker and truthful recovery, while preserving safety dots', async t => {
+  const app = mounted(); t.after(() => app.dispose());
+  await app.cache.saveSafetyCache(safety); await app.flush(); app.map.loadStyle(); app.locate(from); await app.flush();
+  app.map.emit('click', { lngLat: to }); await app.flush();
+  assert.equal(app.map.getSource('safest').data.geometry.coordinates.length, 0);
+  assert.equal(app.map.getSource('cells').data.features.length, 1);
+  assert.ok(app.markers.some(marker => marker.point?.[0] === to.lng && marker.point?.[1] === to.lat));
+  assert.match(app.text(), /Offline: no saved route/);
+  assert.deepEqual(app.requests, []);
+});
+
+test('mobile planning panel toggles and closes on selection while keeping SOS outside the scroll panel', async t => {
+  const app = mounted(); t.after(() => app.dispose()); await app.flush();
+  const toggle = () => app.nodes(n => n.props?.['aria-controls'] === 'journey-controls')[0];
+  assert.equal(toggle().props['aria-expanded'], false);
+  toggle().props.onClick(); await app.flush(); assert.equal(toggle().props['aria-expanded'], true);
+  app.nodes(n => n.props?.placeholder?.startsWith('Go to'))[0].props.onPick({ ...to, label: 'Saved destination label' });
+  await app.flush(); assert.equal(toggle().props['aria-expanded'], false);
+  assert.match(app.text(), /Saved destination label/);
+  const rootChildren = app.tree.props.children;
+  const panel = rootChildren.at(-1);
+  assert.equal(panel.props.children.at(-1).props.children.props.children, 'SOS');
+});
+
+test('restoring a different saved journey fits its real geometry above the controls, never the previous route', async t => {
+  const app = mounted({ online: true }); t.after(() => app.dispose());
+  await app.flush(); app.map.loadStyle(); app.locate(from); await app.flush();
+  app.map.emit('click', { lngLat: to }); await app.flush(); app.network(false); await app.flush();
+  const destination = { lat: 27.73, lng: 85.33 };
+  const second = { ...routes, routes: [{ ...routes.routes[0], coords: [[85.30, 27.70], [85.32, 27.72], [85.33, 27.73]] }] };
+  await app.cache.saveJourney(from, destination, second);
+  await app.nodes(n => n.type === 'button' && n.props.children === 'Reopen last saved journey')[0].props.onClick();
+  await app.flush();
+  assert.deepEqual(plain(app.map.bounds), [[85.30, 27.70], [85.33, 27.73]]);
+  assert.equal(app.map.fitOptions.padding.bottom, 196);
+  assert.deepEqual(plain(app.map.getSource('safest').data.geometry.coordinates), second.routes[0].coords);
 });
 
 test('cached metadata with empty cells never claims usable saved safety', async t => {

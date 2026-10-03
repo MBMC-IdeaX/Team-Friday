@@ -1,4 +1,4 @@
-// Checks the S.7 recording upload: a real webm-ish chunk lands in the private
+// Checks the S.7 recording upload: a fake binary fixture lands in the private
 // bucket and gets appended to guardian_sessions.media_paths; bad input rejected.
 // Run with the dev server up:
 //   node scripts/check-recording.mjs
@@ -42,9 +42,13 @@ const expect = (label, r, status, extra = () => true) => {
 
 const id = await newSession();
 const audio = new Blob([new Uint8Array(2048)], { type: "audio/webm;codecs=opus" });
+// FAKE transport fixtures; use a real-device microphone test for playability.
+const secondAudio = new Blob([new Uint8Array([1]), new Uint8Array(2047)], { type: audio.type });
 
 expect("upload chunk", await upload(id, audio), 200, (j) => j.ok && j.path.startsWith(`${id}/`));
-expect("second chunk appends", await upload(id, audio), 200);
+expect("retry does not duplicate", await upload(id, audio), 200);
+assert.equal((await paths(id)).length, 1, "retry must preserve one reference");
+expect("second recording appends", await upload(id, secondAudio), 200);
 expect("bad sessionId", await upload("nope", audio), 400);
 expect("missing file", await upload(id, new Blob([]), "x.webm"), 400);
 expect("oversize chunk", await upload(id, new Blob([new Uint8Array(3 * 1024 * 1024)])), 413);

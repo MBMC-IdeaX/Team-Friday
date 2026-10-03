@@ -25,6 +25,8 @@ export const viewport: Viewport = {
   themeColor: "#1b7a86",
   width: "device-width",
   initialScale: 1,
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
 };
 
 // No chrome here on purpose: each route group owns its own shell (see

@@ -16,11 +16,12 @@ export default function GuardiansPage() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
 
   useEffect(() => {
     listGuardians()
       .then((g) => setGuardians(g.sort((a, b) => (a.id ?? 0) - (b.id ?? 0))))
-      .catch(() => {})
+      .catch(() => setNote("Could not read saved guardians. Please reopen this page and retry."))
       .finally(() => setLoaded(true));
   }, []);
 
@@ -29,7 +30,9 @@ export default function GuardiansPage() {
     // strip formatting people paste in, but keep a leading + for country codes
     const clean = phone.replace(/[\s()\-.]/g, "");
     if (!/^\+?\d{6,15}$/.test(clean)) return;
-    await saveGuardian({ name: name.trim() || clean, phone: clean });
+    try { await saveGuardian({ name: name.trim() || clean, phone: clean }); }
+    catch { setNote("Could not save this guardian on your device. Please retry."); return; }
+    setNote(null);
     setName("");
     setPhone("");
     listGuardians()
@@ -39,14 +42,15 @@ export default function GuardiansPage() {
 
   const remove = async (id?: number) => {
     if (id == null) return;
-    await removeGuardian(id);
+    try { await removeGuardian(id); }
+    catch { setNote("Could not remove this guardian. Please retry."); return; }
     setGuardians((list) => list.filter((g) => g.id !== id));
   };
 
   const bad = phone.length > 0 && !/^\+?\d{6,15}$/.test(phone.replace(/[\s()\-.]/g, ""));
 
   return (
-    <main className="p-3">
+    <main className="min-w-0 p-3">
       <h1 className="text-lg font-semibold">Your guardians</h1>
       <p className="mt-1 text-xs text-muted-foreground">
         Saved on this phone only. The SOS button calls and texts them straight from the
@@ -54,19 +58,19 @@ export default function GuardiansPage() {
       </p>
 
       <form onSubmit={add} className="mt-3 space-y-2">
-        <div className="flex gap-2">
+        <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Name (e.g. Sister)"
-            className="flex-1 rounded-xl bg-black/70 px-3 py-3 text-sm"
+            className="min-w-0 w-full rounded-xl bg-black/70 px-3 py-3 text-base sm:text-sm"
           />
           <input
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="Phone"
             inputMode="tel"
-            className="flex-1 rounded-xl bg-black/70 px-3 py-3 text-sm"
+            className="min-w-0 w-full rounded-xl bg-black/70 px-3 py-3 text-base sm:text-sm"
           />
         </div>
         {bad && (
@@ -82,6 +86,7 @@ export default function GuardiansPage() {
           Add guardian
         </button>
       </form>
+      {note && <p role="status" className="mt-2 text-sm text-amber-300">{note}</p>}
 
       <ul className="mt-4 space-y-2">
         {guardians.map((g) => (

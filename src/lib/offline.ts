@@ -14,10 +14,8 @@ export type Store = (typeof STORES)[number];
 
 export type OutboxItem = { id?: number; url: string; body: string; method?: "POST" | "PATCH"; createdAt: number };
 export type Guardian = { id?: number; name: string; phone: string };
-// Audio chunks, not one long file. MediaRecorder dies whenever the OS suspends
-// the page, and a single 20-minute blob that never got written is worth nothing —
-// a 10s chunk written before the suspension is evidence that survives.
-export type Recording = { id?: number; sessionId: string; blob: Blob; createdAt: number };
+// Complete short recording segments; older queued blobs remain readable.
+export type Recording = { id?: number; sessionId: string; blob: Blob; createdAt: number; durationMs?: number };
 // The account this device remembers. Stored here rather than in localStorage
 // because IndexedDB is the browser's durable, structured store — the thing you
 // would use SQLite for in a native app.
@@ -162,24 +160,38 @@ export const clearDeviceAccount = async () => {
 
 // -- recordings (S.7) ---------------------------------------------------------
 
-export const saveRecording = (sessionId: string, blob: Blob) =>
-  idbPut("recordings", { sessionId, blob, createdAt: Date.now() } satisfies Recording);
+export const saveRecording = (sessionId: string, blob: Blob, durationMs?: number) => {
+  if (!blob.size) return Promise.reject(new Error("Empty recording"));
+  return idbPut("recordings", { sessionId, blob, createdAt: Date.now(), durationMs } satisfies Recording);
+};
 export const pendingRecordings = () => idbAll<Recording>("recordings");
 export const dropRecording = (key: IDBValidKey) => idbDel("recordings", key);
 
 async function sendRecording(r: Recording): Promise<boolean> {
   const form = new FormData();
   form.set("sessionId", r.sessionId);
-  form.set("file", r.blob, "chunk.webm");
-  const res = await fetch("/api/recording", { method: "POST", body: form });
-  return res.ok;
+  form.set("file", r.blob, "recording");
+  if (r.durationMs !== undefined) form.set("durationMs", String(r.durationMs));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const res = await fetch("/api/recording", { method: "POST", body: form, signal: controller.signal });
+    return res.ok;
+  } finally { clearTimeout(timeout); }
 }
 
-/** Returns how many chunks are still on the device — the guardian view reads
- *  this as "evidence not yet uploaded", which is the honest number to show. */
-export async function flushRecordings(): Promise<number> {
+let recordingFlight: Promise<number> | null = null;
+/** Serialize drains; retries use content-addressed server paths, never new objects. */
+export function flushRecordings(): Promise<number> {
+  if (recordingFlight) return recordingFlight;
+  recordingFlight = drainRecordings().finally(() => { recordingFlight = null; });
+  return recordingFlight;
+}
+async function drainRecordings(): Promise<number> {
+  // Create the SOS session before trying to attach its private evidence.
+  if (typeof navigator !== "undefined" && navigator.onLine !== false) await flushOutbox().catch(() => {});
   const items = (await pendingRecordings()).sort((a, b) => a.id! - b.id!);
-  let sent = 0;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return items.length;
   for (const r of items) {
     let ok = false;
     try {
@@ -189,9 +201,8 @@ export async function flushRecordings(): Promise<number> {
     }
     if (!ok) break;
     if (r.id != null) await idbDel("recordings", r.id);
-    sent++;
   }
-  return items.length - sent;
+  return (await pendingRecordings()).length;
 }
 
 // -- active session -------------------------------------------------------------

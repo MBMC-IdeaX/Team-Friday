@@ -1,8 +1,12 @@
 // Public pages are cached by URL; never substitute the map for another screen.
 const VERSION = "hg-v1";
 // A new worker prepares its own assets before replacing the previous worker.
-const SHELL = `${VERSION}-shell-pages-v3`;
+const SHELL = `${VERSION}-shell-pages-v4`;
 const DATA = `${VERSION}-data`;
+const TILES = `${VERSION}-viewed-tiles`;
+const TILE_META = `${VERSION}-viewed-tile-metadata`;
+const MAX_TILES = 200;
+let tileWrites = Promise.resolve();
 const OFFLINE_PAGES = ["/", "/sos", "/guardians", "/rights", "/help", "/login"];
 const PRECACHE = [...OFFLINE_PAGES, "/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/maplibre-gl-worker.mjs", "/maplibre-gl-shared.mjs"];
 
@@ -57,7 +61,7 @@ self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => [`${VERSION}-shell`, `${VERSION}-shell-pages-v2`].includes(k)).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => [`${VERSION}-shell`, `${VERSION}-shell-pages-v2`, `${VERSION}-shell-pages-v3`].includes(k)).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
@@ -66,8 +70,11 @@ self.addEventListener("fetch", (e) => {
   const { request } = e;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
-  // cross-origin = OSM raster tiles. Not cached: opaque responses are large and
-  // OSM's tile policy discourages bulk offline prefetch. Map greys out, not breaks.
+  // Only normal viewport requests are cached. No tile prefetch/download jobs.
+  if (url.origin === "https://tile.openstreetmap.org" && /^\/\d+\/\d+\/\d+\.png$/.test(url.pathname) && !url.search) {
+    e.respondWith(viewedTile(request));
+    return;
+  }
   if (url.origin !== self.location.origin) return;
 
   if (request.mode === "navigate") {
@@ -78,6 +85,46 @@ self.addEventListener("fetch", (e) => {
     e.respondWith(cacheFirst(request));
   }
 });
+
+async function viewedTile(request) {
+  let cache, meta, hit, policy;
+  try {
+    cache = await caches.open(TILES); meta = await caches.open(TILE_META);
+    hit = await cache.match(request);
+    if (hit && (!hit.ok || hit.type === "opaque" || !(hit.headers.get("Content-Type") ?? "").includes("image/png"))) hit = null;
+    policy = await (await meta.match(request))?.json().catch(() => null);
+    if (hit && policy?.expires > Date.now()) return hit;
+  } catch { /* cache failures must not prevent normal online map viewing */ }
+  try {
+    const response = await fetch(request); // Browser HTTP cache handles conditional revalidation.
+    if (response.ok && response.type !== "opaque" && (response.headers.get("Content-Type") ?? "").includes("image/png")) {
+      const bytes = new Uint8Array(await response.clone().arrayBuffer());
+      const control = response.headers.get("Cache-Control") ?? "";
+      if (bytes.length <= 256 * 1024 && [137, 80, 78, 71, 13, 10, 26, 10].every((byte, i) => bytes[i] === byte) && !/no-store/i.test(control)) {
+        const maxAge = control.match(/max-age=(\d+)/i)?.[1];
+        const date = Date.parse(response.headers.get("Date") ?? "");
+        const expiry = Date.parse(response.headers.get("Expires") ?? "");
+        const expires = /no-cache/i.test(control) ? 0 : maxAge !== undefined && Number.isFinite(date) ? date + Number(maxAge) * 1000
+          : Number.isFinite(expiry) ? expiry : Date.now() + Number(maxAge ?? 7 * 24 * 60 * 60) * 1000;
+        tileWrites = tileWrites.catch(() => {}).then(async () => {
+          cache ??= await caches.open(TILES); meta ??= await caches.open(TILE_META);
+          const keys = await cache.keys();
+          const replacing = keys.some(key => key.url === request.url);
+          for (const key of keys.slice(0, Math.max(0, keys.length - MAX_TILES + (replacing ? 0 : 1)))) {
+            await cache.delete(key); await meta.delete(key);
+          }
+          await meta.put(request, Response.json({ expires, mustRevalidate: /must-revalidate|no-cache/i.test(control) }));
+          await cache.put(request, response.clone());
+        });
+        await tileWrites.catch(() => {});
+      }
+    }
+    return response;
+  } catch {
+    if (hit && !policy?.mustRevalidate) return hit;
+    return new Response("This map tile is not available offline", { status: 503 });
+  }
+}
 
 function unavailableOffline() {
   return new Response(`<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HerGuardian · Offline</title><body style="background:#111;color:white;font:18px system-ui;padding:24px"><h1>This page needs internet</h1><p>Reconnect to open this page. Your saved information has not been deleted.</p><p><a style="color:#75d5df" href="/">Map</a> · <a style="color:#75d5df" href="/guardians">Guardians</a> · <a style="color:#75d5df" href="/rights">Rights</a> · <a style="color:#75d5df" href="/help">Help</a> · <a style="color:#75d5df" href="/sos">SOS</a></p></body></html>`, { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
