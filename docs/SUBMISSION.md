@@ -19,6 +19,13 @@ A 0-100 Safety Score per street (crime, reports, time, lighting, crowd) powers s
 
 1) Live Safety Score per street plus safest-not-shortest routing. 2) One-tap SOS that reaches a guardian even when she has no signal.
 
+## Project workflow diagram
+
+`docs/workflow.png` — four swimlanes (user / app device / server / data and
+external), 29 numbered steps in pitch order, with the offline behaviour called out
+at the foot. Also shipped as `.svg`, `.jpg` and `.pdf`, and regenerable with
+`python3 scripts/make-workflow.py`.
+
 ## Why these answers are worded this way
 
 - **Names the comparators.** Judges know Citizen and bSafe. Showing we have read the
