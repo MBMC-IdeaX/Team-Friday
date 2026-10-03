@@ -158,7 +158,11 @@ test('concurrent create/terminal orderings finish terminal, and missing active P
   assert.equal((await api().patch({ lat: 30, lng: 90 })).status, 404);
 });
 test('both UI paths use durable end; SQL no-op and atomic terminal semantics are reviewed structurally', () => {
-  for (const file of ['src/app/sos/page.tsx', 'src/components/map-view.tsx']) {
+  // /sos moved into the (bare) route group when the render-time usePathname()
+  // branch was replaced by group layouts. Assertions are unchanged — only the
+  // path moved — and the read now fails with a message instead of ENOENT.
+  for (const file of ['src/app/(bare)/sos/page.tsx', 'src/components/map-view.tsx']) {
+    assert.ok(fs.existsSync(file), `structural guard expects ${file} to exist`);
     const code = fs.readFileSync(file, 'utf8'); assert.match(code, /await endSosSession\(/); assert.doesNotMatch(code, /clearActiveSession\(/);
   }
   const sql = fs.readFileSync('supabase/schema.sql', 'utf8');

@@ -99,7 +99,7 @@ airplane mode, then reopen. The shell and the safety grid should still render.
 greys out and the risk overlay remains. That is the intended trade, recorded in
 `PLAN.md` §5.
 
-`EMERGENCY` in `src/app/sos/page.tsx` is the fallback the red button dials when no
+`EMERGENCY` in `src/app/(bare)/sos/page.tsx` is the fallback the red button dials when no
 guardian is configured. Once you add a guardian on the SOS screen, the button dials
 **that person** instead. Change the constant for your region.
 

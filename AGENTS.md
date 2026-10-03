@@ -43,7 +43,9 @@ These are the product, not implementation details. Do not "improve" them away.
 
 # Navigation
 Bottom bar on every screen except /sos: Map · Guardians · Rights · Help.
-`src/components/shell.tsx` owns it, so no page is a dead end you cannot leave.
+The route-group layouts in `src/app/` own it, so no page is a dead end you cannot
+leave. Choose chrome by route group, never by branching on `usePathname()` during
+render — that is what caused a hydration mismatch.
 
 # Content with consequences
 Phone numbers and legal claims are never written from memory. Every entry in

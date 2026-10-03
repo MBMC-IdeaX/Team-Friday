@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import Bootstrap from "@/components/bootstrap";
-import Shell from "@/components/shell";
 import "./globals.css";
 
 const inter = Inter({
@@ -28,11 +27,14 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
+// No chrome here on purpose: each route group owns its own shell (see
+// (map)/layout.tsx, (app)/layout.tsx, (bare)/layout.tsx), so the markup for a
+// route is identical on the server and the client.
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`dark ${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
-        <Shell>{children}</Shell>
+        {children}
         <Bootstrap />
       </body>
     </html>

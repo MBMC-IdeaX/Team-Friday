@@ -245,10 +245,10 @@ Guardian phone numbers are stored **on the device**, so the SOS screen's Message
 | S.0 | Supabase project + schema + real seed from `buildCells()` | `.env.local`, `scripts/seed.mjs` | `/api/cells` returns `source: "db"` |
 | S.1 | Offline shell | `public/sw.js`, `src/components/bootstrap.tsx`, `layout.tsx` | offline DevTools → shell renders, map still coloured from cached cells |
 | S.2 | Local-first outbox | `src/lib/offline.ts` (idb + outbox + guardians + recordings) | offline report flushes on reconnect; `node --test` green |
-| S.3 | Panic button | `src/app/api/sos/route.ts`, `src/app/sos/page.tsx`, `map-view.tsx` | airplane mode → tap SOS → screen + siren + `tel:`/`sms:` all work; row lands after reconnect |
+| S.3 | Panic button | `src/app/api/sos/route.ts`, `src/app/(bare)/sos/page.tsx`, `map-view.tsx` | airplane mode → tap SOS → screen + siren + `tel:`/`sms:` all work; row lands after reconnect |
 | S.4 | Guardian layers | `src/lib/realtime.ts`, `src/app/guard/[id]/page.tsx`, `src/lib/map-style.ts` | phone A taps SOS → phone B pin moves; reload keeps last position |
 | S.6 | Web Push | `web-push`, VAPID, `push_subscriptions` (5th table), `src/lib/push.ts` + `push-server.ts` | ✅ code complete — **needs the S.6 SQL block run in Supabase**, then guardian opts in |
-| S.7 | Auto-record → Storage | `src/app/sos/page.tsx` | file appears in the `recordings` bucket |
+| S.7 | Auto-record → Storage | `src/app/(bare)/sos/page.tsx` | file appears in the `recordings` bucket |
 | S.8 | Voice trigger | `src/lib/voice.ts` + toggle on the map screen ✅ "help me" / "bachao" fires SOS (online only) |
 
 **New deps this phase:** `web-push` (approved) — nothing else. Service worker, IndexedDB wrapper, siren and share are hand-rolled on platform APIs. Background Sync is skipped: Chromium-only (no Safari, no Firefox), and `online` + IndexedDB is both shorter and cross-browser.
@@ -267,7 +267,7 @@ error *and* kept saying "Loading…"; and if IndexedDB was unavailable (Safari
 private mode) `queueRequest` rejected, leaving the whole SOS screen inert. All
 three now say what is wrong and offer a way out.
 
-**Post-plan additions.** Bottom navigation (`components/shell.tsx`); `/guardians`
+**Post-plan additions.** Bottom navigation (route-group layouts); `/guardians`
 for on-device guardian management; `/rights` (Nepal women's legal rights, every
 claim citing its statute); `/help` (verified helplines + **live** nearby facilities
 from OpenStreetMap via Overpass); place search on the map via Nominatim.
