@@ -12,7 +12,10 @@ export default function Bootstrap() {
     // /_next/static entries are unhashed there, so cacheFirst serves stale chunks.
     if ("serviceWorker" in navigator) {
       if (process.env.NODE_ENV === "production") {
-        navigator.serviceWorker.register("/sw.js").catch(() => {});
+        // Check the worker script without reusing an older HTTP-cache version.
+        navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" })
+          .then(registration => navigator.onLine ? registration.update() : undefined)
+          .catch(() => {});
       } else if (typeof navigator.serviceWorker.getRegistrations === "function") {
         // A production worker persists when this origin switches back to dev.
         const scriptURL = new URL("/sw.js", location.origin).href;

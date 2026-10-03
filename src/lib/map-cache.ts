@@ -4,6 +4,7 @@ import { fetchJson } from "./network";
 export type Route = { id: number; duration: number; distance: number; safety: number; coords: [number, number][] };
 export type RoutesRes = { routes: Route[]; shortestId: number; safestId: number; hour: number };
 export type SafetyData = { cells: Cell[]; source: "db" | "fake" };
+export type Journey = { from: { lat: number; lng: number }; to: { lat: number; lng: number }; routes: RoutesRes };
 export type Saved<T> = { savedAt: number; value: T };
 const CACHE = "hg-v1-map-data";
 const SAFETY_KEY = "/__offline/safety";
@@ -58,14 +59,27 @@ export async function saveRouteCache(key: string, value: unknown) {
 }
 
 const LAST_ROUTE_KEY = "/__offline/last-route";
+const validPoint = (p: { lat: number; lng: number } | null) => p && finite(p.lat) && finite(p.lng) && Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180;
+const validJourney = (value: unknown): value is Journey => {
+  const journey = value as Journey | null;
+  return !!journey && !!validPoint(journey.from) && !!validPoint(journey.to) && validRoutes(journey.routes);
+};
+const usableAge = (saved: Saved<unknown>) => Date.now() - saved.savedAt >= 0 && Date.now() - saved.savedAt <= MAX_ROUTE_AGE;
+export async function saveJourney(from: Journey["from"], to: Journey["to"], routes: RoutesRes) {
+  const journey = { from, to, routes };
+  // Geometry and endpoints commit together; a missing second write cannot lose the journey.
+  return validJourney(journey) ? write(LAST_ROUTE_KEY, journey) : false;
+}
 export async function readLastJourney() {
+  const complete = await read(LAST_ROUTE_KEY, validJourney);
+  if (complete && usableAge(complete)) return { savedAt: complete.savedAt, value: complete.value.routes, from: complete.value.from, to: complete.value.to };
+  // Preserve old journeys written as a pointer plus a separate route record.
   try {
     const response = await (await caches.open(CACHE)).match(LAST_ROUTE_KEY);
-    const last = response ? await response.json() : null;
-    const point = (p: { lat: number; lng: number } | null) => p && finite(p.lat) && finite(p.lng) && Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180;
-    if (!last || !point(last.from) || !point(last.to)) return null;
-    const saved = await readRouteCache(routeCacheKey(last.from, last.to));
-    return saved ? { ...saved, from: last.from as { lat: number; lng: number }, to: last.to as { lat: number; lng: number } } : null;
+    const old = response ? await response.json() : null;
+    if (!old || !validPoint(old.from) || !validPoint(old.to)) return null;
+    const saved = await readRouteCache(routeCacheKey(old.from, old.to));
+    return saved ? { ...saved, from: old.from as Journey["from"], to: old.to as Journey["to"] } : null;
   } catch { return null; }
 }
 export async function lastRouteDestination(from: { lat: number; lng: number }) {
@@ -80,15 +94,13 @@ export async function loadRoute(from: { lat: number; lng: number }, to: { lat: n
     const value: unknown = response.ok ? data : null;
     if (!validRoutes(value)) throw new Error("invalid route");
     if (signal.aborted) throw new Error("cancelled");
-    const stored = await saveRouteCache(key, value);
-    if (stored && !signal.aborted) {
-      try { await (await caches.open(CACHE)).put(LAST_ROUTE_KEY, Response.json({ from, to })); } catch { /* best effort */ }
-    }
-    return { value, savedAt: Date.now(), cached: false };
+    const stored = await saveJourney(from, to, value);
+    await saveRouteCache(key, value);
+    return { value, savedAt: Date.now(), cached: false, persisted: stored };
   } catch {
     if (signal.aborted) throw new Error("cancelled");
     const saved = await readRouteCache(key);
-    if (saved) return { ...saved, cached: true };
+    if (saved) return { ...saved, cached: true, persisted: true };
     throw new Error(navigator.onLine
       ? "Routing unavailable or timed out, and no saved route matches these points. Try again online."
       : "Offline: no saved route matches these points. Connect to generate this route; place search also needs internet.");

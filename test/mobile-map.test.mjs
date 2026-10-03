@@ -90,7 +90,8 @@ test('offline route reuse requires the exact endpoints; missing and expired rout
   const key = api.routeCacheKey(from, to);
   await store.cache.put(key, Response.json({ value: routes, savedAt: Date.now() - 25 * 60 * 60 * 1000 }));
   assert.equal(await api.readRouteCache(key), null);
-  assert.equal(await api.lastRouteDestination(from), null);
+  // The complete last journey is independent of the per-endpoint lookup entry.
+  assert.equal((await api.readLastJourney()).to.lat, to.lat);
   await assert.rejects(api.loadRoute(from, to, signal), /Offline: no saved route/);
 });
 test('network failure falls back to saved route; invalid response does not poison route cache', async () => {
@@ -154,6 +155,15 @@ test('saved journey reopens original endpoints despite GPS drift or unavailable 
   assert.equal(journey.value.routes[0].coords.length, 2);
   assert.equal(await api.lastRouteDestination({ ...from, lat: from.lat + .0002 }), null);
   assert.equal((await api.readLastJourney()).value.routes[0].distance, 500);
-  await store.cache.put(api.routeCacheKey(from, to), Response.json({ value: routes, savedAt: Date.now() - 25 * 60 * 60 * 1000 }));
+  await store.cache.put('/__offline/last-route', Response.json({ value: { from, to, routes }, savedAt: Date.now() - 25 * 60 * 60 * 1000 }));
   assert.equal(await api.readLastJourney(), null);
+});
+
+test('previous pointer-format journey remains readable without deleting or rewriting saved data', async () => {
+  const store = storage();
+  const api = load('src/lib/map-cache.ts', { caches: store.caches });
+  await api.saveRouteCache(api.routeCacheKey(from, to), routes);
+  await store.cache.put('/__offline/last-route', Response.json({ from, to }));
+  assert.equal((await api.readLastJourney()).value.routes[0].coords.length, 2);
+  assert.deepEqual(await (await store.cache.match('/__offline/last-route')).json(), { from, to });
 });

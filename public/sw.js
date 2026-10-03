@@ -1,9 +1,20 @@
 // Public pages are cached by URL; never substitute the map for another screen.
 const VERSION = "hg-v1";
-const SHELL = `${VERSION}-shell-pages-v2`;
+// A new worker prepares its own assets before replacing the previous worker.
+const SHELL = `${VERSION}-shell-pages-v3`;
 const DATA = `${VERSION}-data`;
 const OFFLINE_PAGES = ["/", "/sos", "/guardians", "/rights", "/help", "/login"];
 const PRECACHE = [...OFFLINE_PAGES, "/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/maplibre-gl-worker.mjs", "/maplibre-gl-shared.mjs"];
+
+function usableAsset(response, url) {
+  if (!response.ok || response.redirected) return false;
+  const path = new URL(url, self.location.origin).pathname;
+  const type = response.headers.get("Content-Type") ?? "";
+  if (/\.m?js$/.test(path)) return /(?:application|text)\/(?:javascript|ecmascript)/i.test(type);
+  if (/\.css$/.test(path)) return /text\/css/i.test(type);
+  if (OFFLINE_PAGES.includes(path)) return /text\/html/i.test(type);
+  return true;
+}
 
 // Includes chunk references in Next's inline component payload, not just script tags.
 function staticAssets(text, base) {
@@ -29,7 +40,7 @@ async function prepareOfflinePages() {
     if (visited.has(url)) continue;
     visited.add(url);
     const response = await fetch(url, { cache: "reload", credentials: "omit" });
-    if (!response.ok || response.redirected) throw new Error("Offline preparation failed");
+    if (!usableAsset(response, url)) throw new Error("Offline preparation failed");
     const type = response.headers.get("Content-Type") ?? "";
     if (/text\/html|javascript|text\/css/.test(type)) {
       pending.push(...staticAssets(await response.clone().text(), url));
@@ -46,7 +57,7 @@ self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k === `${VERSION}-shell`).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => [`${VERSION}-shell`, `${VERSION}-shell-pages-v2`].includes(k)).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
@@ -123,10 +134,11 @@ async function safetyData(request) {
 
 async function cacheFirst(request) {
   const cache = await caches.open(SHELL);
-  const hit = await cache.match(request);
-  if (hit) return hit;
+  // Asset URLs identify their content; navigation/RSC requests never use this path.
+  const hit = await cache.match(request, { ignoreVary: true });
+  if (hit && usableAsset(hit, request.url)) return hit;
   const res = await fetch(request);
-  if (res.ok) cache.put(request, res.clone());
+  if (usableAsset(res, request.url)) await cache.put(request, res.clone()).catch(() => {});
   return res;
 }
 

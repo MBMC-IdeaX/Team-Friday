@@ -7,11 +7,10 @@ import {
   AttributionControl,
   config,
   type MapMouseEvent,
-  type GeoJSONSource,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useRouter } from "next/navigation";
-import { buildCells, scoreOf, type Cell } from "@/lib/safety";
+import { buildCells, type Cell } from "@/lib/safety";
 
 // Bundlers rewrite import.meta.url, so maplibre can't locate its worker file.
 // Serve a copy from /public instead (worker imports ../shared from same dir).
@@ -25,6 +24,7 @@ import { startVoiceSos, voiceSupported } from "@/lib/voice";
 import { activeSessionId, endSosSession } from "@/lib/offline";
 import { BRAND, CENTER, STYLE, scoreColor } from "@/lib/map-style";
 
+import { bindMapOverlays, type OverlayStatus } from "@/lib/map-overlays";
 import { navigateTo } from "@/lib/navigation";
 import { fetchJson } from "@/lib/network";
 import { watchDeviceLocation, routingOrigin, type DeviceLocation } from "@/lib/location";
@@ -32,11 +32,6 @@ import { readSafetyCache, saveSafetyCache, validSafetyData, loadRoute, readLastJ
 
 const fmtTime = (sec: number) => `${Math.round(sec / 60)} min`;
 const fmtDist = (m: number) => `${(m / 1000).toFixed(1)} km`;
-const routeFc = (r?: Route) => ({
-  type: "Feature" as const,
-  properties: {},
-  geometry: { type: "LineString" as const, coordinates: r ? r.coords : [] },
-});
 
 function RouteCard({ r, label, best }: { r: Route; label: string; best: boolean }) {
   return (
@@ -72,6 +67,9 @@ export default function MapView() {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MLMap | null>(null);
+  const overlaysRef = useRef<ReturnType<typeof bindMapOverlays> | null>(null);
+  const [overlayStatus, setOverlayStatus] = useState<OverlayStatus>({ stage: "waiting-style", cells: 0, rendered: 0 });
+  const overlayNote = overlayStatus.stage === "failed" ? "Map overlays could not render. Reopen online to refresh the map assets." : null;
   const markerRef = useRef<Marker | null>(null);
   const userMarkerRef = useRef<Marker | null>(null);
   const centeredRef = useRef(false);
@@ -171,49 +169,17 @@ export default function MapView() {
     map.on("click", (e: MapMouseEvent) => {
       pickDestination({ lat: +e.lngLat.lat.toFixed(5), lng: +e.lngLat.lng.toFixed(5) });
     });
-    // style.load permits adding sources/layers without waiting for raster tiles.
-    map.on("style.load", () => {
-      if (!map.getSource("cells")) map.addSource("cells", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
-      if (!map.getLayer("cells")) map.addLayer({
-        id: "cells",
-        type: "circle",
-        source: "cells",
-        paint: {
-          "circle-radius": 18,
-          "circle-opacity": 0.32,
-          "circle-color": [
-            "step",
-            ["get", "risk"],
-            BRAND,
-            0.35,
-            "#eab308",
-            0.58,
-            "#ef4444",
-          ],
-        },
-      });
-      for (const name of ["shortest", "safest"] as const) {
-        if (!map.getSource(name)) map.addSource(name, { type: "geojson", data: routeFc() });
-        if (!map.getLayer(name)) map.addLayer({
-          id: name,
-          type: "line",
-          source: name,
-          paint: {
-            "line-color": name === "safest" ? BRAND : "#94a3b8",
-            "line-width": name === "safest" ? 5 : 3,
-            "line-dasharray": name === "safest" ? [1, 0] : [2, 2],
-          },
-        });
-      }
-      setMapReady((version) => version + 1);
+    overlaysRef.current = bindMapOverlays(map, status => {
+      setOverlayStatus(previous => previous.stage === status.stage && previous.cells === status.cells && previous.rendered === status.rendered ? previous : status);
+      if (process.env.NODE_ENV !== "production") console.debug("HG_MAP_OVERLAY", status);
     });
+    map.on("style.load", () => setMapReady(version => version + 1));
     const resize = new ResizeObserver(() => map.resize());
     resize.observe(containerRef.current);
     return () => {
       resize.disconnect();
+      overlaysRef.current?.dispose();
+      overlaysRef.current = null;
       markerRef.current?.remove();
       markerRef.current = null;
       userMarkerRef.current?.remove();
@@ -306,20 +272,31 @@ export default function MapView() {
     const load = async () => {
       const attempt = ++revision;
       setLoading(true); setError(null); setData(null); setDestScore(null); setRouteNote(null);
+      if (savedJourney && savedJourney.to.lat === toLat && savedJourney.to.lng === toLng) {
+        setData(savedJourney.value);
+        setRouteNote(`Saved journey · ${new Date(savedJourney.savedAt).toLocaleString()}. Original start: ${savedJourney.from.lat}, ${savedJourney.from.lng}; not your live GPS start. Route and scores may be outdated.`);
+        setLoading(false); return;
+      }
+      // Going offline keeps the chosen journey's original start, not a drifting GPS key.
+      if (!navigator.onLine && !savedJourney) {
+        const journey = await readLastJourney();
+        if (cancelled || attempt !== revision) return;
+        if (journey && journey.to.lat === toLat && journey.to.lng === toLng &&
+          (!origin || (journey.from.lat === fromLat && journey.from.lng === fromLng))) {
+          setOrigin(journey.from); setSavedJourney(journey); setLoading(false);
+          return;
+        }
+      }
       if (fromLat === undefined || fromLng === undefined) {
         setError("Location unavailable. Enable location or choose a start point to get a route.");
         setLoading(false); return;
       }
       try {
-        if (savedJourney && savedJourney.from.lat === fromLat && savedJourney.from.lng === fromLng && savedJourney.to.lat === toLat && savedJourney.to.lng === toLng) {
-          setData(savedJourney.value);
-          setRouteNote(`Saved journey · ${new Date(savedJourney.savedAt).toLocaleString()}. Original start: ${fromLat}, ${fromLng}; not your live GPS start. Route and scores may be outdated.`);
-          return;
-        }
         const result = await loadRoute({ lat: fromLat, lng: fromLng }, { lat: toLat, lng: toLng }, controller.signal);
         if (cancelled || attempt !== revision) return;
         setData(result.value);
-        setRouteNote(result.cached ? `Saved route · ${new Date(result.savedAt).toLocaleString()}. Route and scores may be outdated; basemap tiles and place search need internet.` : null);
+        setRouteNote(result.cached ? `Saved route · ${new Date(result.savedAt).toLocaleString()}. Route and scores may be outdated; basemap tiles and place search need internet.`
+          : result.persisted ? null : "Route generated, but could not be saved on this device. Reconnect and retry before using it offline.");
         // Destination scoring failure must not discard an otherwise usable route.
         if (!result.cached) {
           void fetchJson<{ score?: number }>(`/api/score?lat=${toLat}&lng=${toLng}`, { signal: controller.signal })
@@ -336,7 +313,7 @@ export default function MapView() {
     addEventListener("online", retry);
     addEventListener("offline", retry);
     return () => { cancelled = true; controller.abort(); removeEventListener("online", retry); removeEventListener("offline", retry); };
-  }, [toLat, toLng, fromLat, fromLng, savedJourney]);
+  }, [toLat, toLng, fromLat, fromLng, savedJourney, origin]);
 
   // Destination changes do not rebuild the safety grid or route geometry.
   useEffect(() => {
@@ -352,35 +329,12 @@ export default function MapView() {
   }, [mapReady, picked]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady) return;
-    if (cells.length) {
-      (map.getSource("cells") as GeoJSONSource | undefined)?.setData({
-        type: "FeatureCollection",
-        features: cells.map((c) => {
-          const score = scoreOf(c, scoreHour);
-          return {
-            type: "Feature" as const,
-            properties: { score, risk: (100 - score) / 100 },
-            geometry: { type: "Point" as const, coordinates: [c.lng, c.lat] },
-          };
-        }),
-      });
-    }
-  }, [mapReady, cells, scoreHour]);
+    overlaysRef.current?.setSafety(cells, scoreHour);
+  }, [cells, scoreHour]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady) return;
-    if (data) {
-      const byId = (id: number) => data.routes.find((r) => r.id === id);
-      (map.getSource("shortest") as GeoJSONSource | undefined)?.setData(routeFc(byId(data.shortestId)));
-      (map.getSource("safest") as GeoJSONSource | undefined)?.setData(routeFc(byId(data.safestId)));
-    } else {
-      (map.getSource("shortest") as GeoJSONSource | undefined)?.setData(routeFc());
-      (map.getSource("safest") as GeoJSONSource | undefined)?.setData(routeFc());
-    }
-  }, [mapReady, data]);
+    overlaysRef.current?.setRoutes(data);
+  }, [data]);
 
   const shortest = data?.routes.find((r) => r.id === data.shortestId);
   const safest = data?.routes.find((r) => r.id === data.safestId);
@@ -391,7 +345,7 @@ export default function MapView() {
       {/* maplibre's unlayered CSS forces position:relative on .maplibregl-map (beats
           Tailwind layers), and % heights don't resolve against the flex parent —
           inline absolute+inset stretches against the parent's used height instead */}
-      <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
+      <div ref={containerRef} data-hg-overlay-stage={overlayStatus.stage} data-hg-safety-cells={overlayStatus.cells} data-hg-safety-rendered={overlayStatus.rendered} style={{ position: "absolute", inset: 0 }} />
 
       <header className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-xl bg-black/70 px-3 py-2 backdrop-blur">
         <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden>
@@ -408,6 +362,7 @@ export default function MapView() {
       </header>
 
       <div className="absolute bottom-3 left-3 z-10 w-[min(24rem,calc(100vw-1.5rem))] space-y-2">
+        {overlayNote && <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-amber-300">{overlayNote}</p>}
         {cellsNote && (
           <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-amber-300">
             {cellsNote}
