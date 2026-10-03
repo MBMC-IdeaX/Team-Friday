@@ -1,4 +1,4 @@
-// Offline shell. Precaches the app, serves the safety grid stale-while-revalidate,
+// Offline shell. Precaches the app, serves valid saved safety data when the network fails,
 // leaves basemap tiles alone. ponytail: no workbox — two strategies and a push
 // handler is the whole requirement.
 //
@@ -40,7 +40,7 @@ self.addEventListener("fetch", (e) => {
   if (request.mode === "navigate") {
     e.respondWith(networkFirstShell(request));
   } else if (url.pathname === "/api/cells") {
-    e.respondWith(staleWhileRevalidate(request));
+    e.respondWith(safetyData(request));
   } else if (url.pathname.startsWith("/_next/static/")) {
     e.respondWith(cacheFirst(request));
   }
@@ -58,18 +58,33 @@ async function networkFirstShell(request) {
   }
 }
 
-async function staleWhileRevalidate(request) {
+function validSafety(value) {
+  const finite = (v) => typeof v === "number" && Number.isFinite(v);
+  return value && ["db", "fake"].includes(value.source) && Array.isArray(value.cells) && value.cells.length > 0 &&
+    value.cells.every(c => c && finite(c.id) && finite(c.lat) && Math.abs(c.lat) <= 90 && finite(c.lng) && Math.abs(c.lng) <= 180 &&
+      [c.crimeRisk, c.reportRisk, c.lighting, c.crowd].every(v => finite(v) && v >= 0 && v <= 1));
+}
+function savedSafetyResponse(hit) {
+  const headers = new Headers(hit.headers);
+  headers.set("X-HG-Safety-Cache", "1");
+  return new Response(hit.body, { status: hit.status, statusText: hit.statusText, headers });
+}
+async function safetyData(request) {
   const cache = await caches.open(DATA);
   const hit = await cache.match(request);
-  const revalidate = fetch(request)
-    .then((res) => {
-      if (res.ok) cache.put(request, res.clone());
-      return res;
-    })
-    .catch(() => null);
-  if (hit) return hit;
-  // no cache and offline: 503 with no `cells` key, so the caller falls back
-  return (await revalidate) ?? new Response('{"error":"offline"}', { status: 503 });
+  const saved = hit ? await hit.clone().json().catch(() => null) : null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 7_000);
+  try {
+    const fresh = await fetch(request, { signal: controller.signal });
+    const value = fresh.ok ? await fresh.clone().json().catch(() => null) : null;
+    if (!validSafety(value)) throw new Error("invalid safety data");
+    if (value.source === "fake" && validSafety(saved) && saved.source === "db") return savedSafetyResponse(hit);
+    await cache.put(request, fresh.clone()).catch(() => {});
+    return fresh;
+  } catch {
+    return validSafety(saved) ? savedSafetyResponse(hit) : new Response('{"error":"safety data unavailable"}', { status: 503 });
+  } finally { clearTimeout(timeout); }
 }
 
 async function cacheFirst(request) {

@@ -17,6 +17,8 @@ import {
   saveRecording,
   type Guardian,
 } from "@/lib/offline";
+import { fetchJson } from "@/lib/network";
+import { currentDeviceLocation, sosSeed, watchDeviceLocation } from "@/lib/location";
 import { joinSession } from "@/lib/realtime";
 
 // Primary emergency contact — dialed by the big red button.
@@ -100,7 +102,7 @@ export default function SosPage() {
         }
       }
       const id = newId();
-      const seed = { id, triggered_by: "tap", lat: 27.7172, lng: 85.324 };
+      const seed = sosSeed(id);
       // IndexedDB can be unavailable (Safari private browsing used to disable it).
       // The durable write is best-effort: if it fails we still open the session and
       // still go to the network, because a blocked local store must never be the
@@ -220,30 +222,44 @@ export default function SosPage() {
   useEffect(() => {
     if (!sessionId) return;
     let last = 0;
+    let busy = false;
+    let stopped = false;
+    const controller = new AbortController();
     const feed = joinSession(sessionId, () => {});
-    const watch = navigator.geolocation.watchPosition(
-      (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        setPin({ lat, lng });
-        const now = Date.now();
-        if (now - last < PIN_INTERVAL_MS) return;
-        last = now;
-        setSentAgo(0);
-        void feed.send({ lat, lng, at: now });
-        fetch("/api/sos", {
+    const send = async () => {
+      const fix = currentDeviceLocation();
+      const now = Date.now();
+      if (!fix || stopped || busy || now - last < PIN_INTERVAL_MS) return;
+      const { lat, lng } = fix;
+      last = now; busy = true;
+      setSentAgo(0);
+      void feed.send({ lat, lng, at: now }).catch(() => {});
+      try {
+        const { response } = await fetchJson("/api/sos", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: sessionId, lat, lng }),
-        })
-          .then((r) => setPhase(r.ok ? "live" : "queued"))
-          .catch(() => setPhase("queued"));
+          signal: controller.signal,
+        });
+        if (!stopped) setPhase(response.ok ? "live" : "queued");
+      } catch { if (!stopped) setPhase("queued"); }
+      finally { busy = false; }
+    };
+    const stopLocation = watchDeviceLocation(
+      (fix) => {
+        setGeoError(null);
+        setPin({ lat: fix.lat, lng: fix.lng });
+        void send();
       },
-      (err) => setGeoError(err.message),
-      { enableHighAccuracy: true, maximumAge: 2000 },
+      (message) => { setGeoError(message); setPin(null); },
     );
+    // Retry a fresh pin even if creation/reconnect completed after the GPS callback.
+    const retry = setInterval(send, PIN_INTERVAL_MS);
+    addEventListener("online", send);
     return () => {
-      navigator.geolocation.clearWatch(watch);
+      stopped = true; controller.abort();
+      clearInterval(retry); removeEventListener("online", send);
+      stopLocation();
       feed.leave();
     };
   }, [sessionId]);

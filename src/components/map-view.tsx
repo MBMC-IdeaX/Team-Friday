@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Map as MLMap,
   Marker,
-  GeolocateControl,
   AttributionControl,
   config,
   type MapMouseEvent,
@@ -18,21 +17,6 @@ import { buildCells, scoreOf, type Cell } from "@/lib/safety";
 // Serve a copy from /public instead (worker imports ../shared from same dir).
 config.WORKER_URL = "/maplibre-gl-worker.mjs";
 
-type Route = {
-  id: number;
-  duration: number;
-  distance: number;
-  safety: number;
-  coords: [number, number][];
-};
-
-type RoutesRes = {
-  routes: Route[];
-  shortestId: number;
-  safestId: number;
-  hour: number;
-};
-
 type Picked = { lat: number; lng: number };
 
 import PlaceSearch from "@/components/place-search";
@@ -40,6 +24,10 @@ import ReportSheet from "@/components/report-sheet";
 import { startVoiceSos, voiceSupported } from "@/lib/voice";
 import { activeSessionId, endSosSession } from "@/lib/offline";
 import { BRAND, CENTER, STYLE, scoreColor } from "@/lib/map-style";
+
+import { fetchJson } from "@/lib/network";
+import { watchDeviceLocation, routingOrigin, type DeviceLocation } from "@/lib/location";
+import { readSafetyCache, saveSafetyCache, validSafetyData, loadRoute, lastRouteDestination, type Route, type RoutesRes } from "@/lib/map-cache";
 
 const fmtTime = (sec: number) => `${Math.round(sec / 60)} min`;
 const fmtDist = (m: number) => `${(m / 1000).toFixed(1)} km`;
@@ -84,17 +72,21 @@ export default function MapView() {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MLMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
-  const [mapReady, setMapReady] = useState(false);
+  const userMarkerRef = useRef<Marker | null>(null);
+  const centeredRef = useRef(false);
+  const [mapReady, setMapReady] = useState(0);
   const [picked, setPicked] = useState<Picked | null>(null);
   const pickedRef = useRef<Picked | null>(null);
   const [origin, setOrigin] = useState<Picked | null>(null);
-  const [userPos, setUserPos] = useState<[number, number] | null>(null);
+  const [locationAttempt, setLocationAttempt] = useState(0);
+  const [fix, setFix] = useState<DeviceLocation | null>(null);
+  const [locationNote, setLocationNote] = useState("Waiting for device location. The initial map center is not your position.");
+  const [routeNote, setRouteNote] = useState<string | null>(null);
   const [data, setData] = useState<RoutesRes | null>(null);
   const [destScore, setDestScore] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cells, setCells] = useState<Cell[]>([]);
-  const [cellsSource, setCellsSource] = useState<"db" | "fake" | null>(null);
   const [cellsNote, setCellsNote] = useState<string | null>(null);
   const [scoreHour, setScoreHour] = useState(() => new Date().getHours());
   const [reporting, setReporting] = useState(false);
@@ -173,24 +165,16 @@ export default function MapView() {
     });
     map.addControl(new AttributionControl({ compact: true }), "top-right");
     mapRef.current = map;
-    const geo = new GeolocateControl({
-      positionOptions: { enableHighAccuracy: true },
-      trackUserLocation: true,
-    });
-    geo.on("geolocate", (e: { coords: { longitude: number; latitude: number } }) =>
-      setUserPos([e.coords.longitude, e.coords.latitude]),
-    );
-    map.addControl(geo, "top-right");
     map.on("click", (e: MapMouseEvent) => {
       pickDestination({ lat: +e.lngLat.lat.toFixed(5), lng: +e.lngLat.lng.toFixed(5) });
     });
     // style.load permits adding sources/layers without waiting for raster tiles.
-    map.once("style.load", () => {
-      map.addSource("cells", {
+    map.on("style.load", () => {
+      if (!map.getSource("cells")) map.addSource("cells", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
-      map.addLayer({
+      if (!map.getLayer("cells")) map.addLayer({
         id: "cells",
         type: "circle",
         source: "cells",
@@ -209,8 +193,8 @@ export default function MapView() {
         },
       });
       for (const name of ["shortest", "safest"] as const) {
-        map.addSource(name, { type: "geojson", data: routeFc() });
-        map.addLayer({
+        if (!map.getSource(name)) map.addSource(name, { type: "geojson", data: routeFc() });
+        if (!map.getLayer(name)) map.addLayer({
           id: name,
           type: "line",
           source: name,
@@ -221,7 +205,7 @@ export default function MapView() {
           },
         });
       }
-      setMapReady(true);
+      setMapReady((version) => version + 1);
     });
     const resize = new ResizeObserver(() => map.resize());
     resize.observe(containerRef.current);
@@ -229,43 +213,74 @@ export default function MapView() {
       resize.disconnect();
       markerRef.current?.remove();
       markerRef.current = null;
+      userMarkerRef.current?.remove();
+      userMarkerRef.current = null;
       map.remove();
       mapRef.current = null;
     };
   }, [pickDestination]);
 
-  // load safety cells (DB-backed server side, FAKE fallback if unconfigured)
+  // Only device fixes enter live position state; the initial camera center is visual.
+  useEffect(() => watchDeviceLocation((position) => {
+    setFix(position);
+    setLocationNote(`Device location · accuracy ±${Math.round(position.accuracy)} m`);
+  }, (message) => { setFix(null); setLocationNote(message); }), [locationAttempt]);
+
   useEffect(() => {
-    const controller = new AbortController();
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!fix) {
+      userMarkerRef.current?.remove();
+      userMarkerRef.current = null;
+      return;
+    }
+    const point: [number, number] = [fix.lng, fix.lat];
+    if (userMarkerRef.current) userMarkerRef.current.setLngLat(point);
+    else userMarkerRef.current = new Marker({ color: "#38bdf8" }).setLngLat(point).addTo(map);
+    if (!centeredRef.current) {
+      map.jumpTo({ center: point, zoom: 14 });
+      centeredRef.current = true;
+    }
+  }, [fix, mapReady]);
+
+  // Render saved data first, then refresh online. Invalid replies never replace it.
+  useEffect(() => {
     let cancelled = false;
-    const timeout = setTimeout(() => controller.abort(), 8_000);
-    fetch("/api/cells", { signal: controller.signal })
-      .then((r) => {
-        if (!r.ok) throw new Error(`Safety data request failed (${r.status}).`);
-        return r.json();
-      })
-      .then((j) => {
-        if (cancelled) return;
-        if (!Array.isArray(j.cells) || !j.cells.length || !["db", "fake"].includes(j.source)) {
-          throw new Error("Safety data response is invalid.");
+    let controller: AbortController | null = null;
+    const load = async () => {
+      controller?.abort();
+      const request = new AbortController();
+      controller = request;
+      const saved = await readSafetyCache();
+      const apply = (value: { cells: Cell[]; source: "db" | "fake" }, note: string | null) => {
+        if (cancelled || request !== controller) return;
+        setCells(value.cells); setCellsNote(value.source === "fake" ? `${note ?? "Database unavailable or unconfigured."} Synthetic demo safety data.` : note);
+      };
+      if (saved) apply(saved.value, `Saved safety data · ${new Date(saved.savedAt).toLocaleString()}. Factors may be outdated.`);
+      const timeout = setTimeout(() => request.abort(), 8_000);
+      try {
+        if (!navigator.onLine) throw new Error("Offline");
+        const response = await fetch("/api/cells", { signal: request.signal, cache: "no-store" });
+        const value: unknown = response.ok ? await response.json() : null;
+        if (!validSafetyData(value)) throw new Error("Invalid safety data");
+        if (value.source === "fake" && saved?.value.source === "db") throw new Error("Database unavailable");
+        const cachedResponse = response.headers.get("X-HG-Safety-Cache") === "1";
+        if (!cachedResponse || !saved) await saveSafetyCache(value);
+        if (cachedResponse) {
+          apply(saved?.value ?? value, "Saved safety data: network refresh unavailable. Factors may be outdated.");
+          return;
         }
-        setCells(j.cells);
-        setCellsSource(j.source);
-        setCellsNote(j.source === "fake" ? "Database safety data is unavailable or unconfigured." : null);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        // FAKE: keep the demo overlay usable, and label its synthetic source.
-        setCells(buildCells());
-        setCellsSource("fake");
-        setCellsNote(controller.signal.aborted ? "Safety data request timed out." : err instanceof Error ? err.message : "Safety data request failed.");
-      })
-      .finally(() => clearTimeout(timeout));
-    return () => {
-      cancelled = true;
-      clearTimeout(timeout);
-      controller.abort();
+        apply(value, value.source === "fake" ? "Database unavailable or unconfigured." : null);
+      } catch {
+        if (!saved) {
+          // FAKE: explicitly identified fallback when no valid saved factors exist.
+          apply({ cells: buildCells(), source: "fake" }, "No saved safety dataset.");
+        }
+      } finally { clearTimeout(timeout); }
     };
+    void load();
+    addEventListener("online", load);
+    return () => { cancelled = true; controller?.abort(); removeEventListener("online", load); };
   }, []);
 
   useEffect(() => {
@@ -273,34 +288,46 @@ export default function MapView() {
     return () => clearInterval(tick);
   }, []);
 
-  // Quantize only the routing origin (~10 m), not the live GPS/SOS position.
-  const fromLat = origin?.lat ?? (userPos ? +userPos[1].toFixed(4) : CENTER[1]);
-  const fromLng = origin?.lng ?? (userPos ? +userPos[0].toFixed(4) : CENTER[0]);
+  // Routing may use a deliberately selected start, never a demo/GPS fallback.
+  const routeOrigin = routingOrigin(origin, fix);
+  const fromLat = routeOrigin?.lat;
+  const fromLng = routeOrigin?.lng;
   const toLat = picked?.lat;
   const toLng = picked?.lng;
 
-  // fetch score + routes for destination
   useEffect(() => {
     if (toLat === undefined || toLng === undefined) return;
     let cancelled = false;
+    let revision = 0;
     const controller = new AbortController();
-    const q = `from=${fromLat},${fromLng}&to=${toLat},${toLng}`;
-    Promise.all([
-      fetch(`/api/score?lat=${toLat}&lng=${toLng}`, { signal: controller.signal }).then((r) => r.json()),
-      fetch(`/api/routes?${q}`, { signal: controller.signal }).then((r) => r.json().then((j) => ({ ok: r.ok, j }))),
-    ])
-      .then(([score, routes]) => {
-        if (cancelled) return;
-        if (score.score !== undefined) setDestScore(score.score);
-        if (!routes.ok) setError(routes.j.error ?? "routing failed");
-        else setData(routes.j);
-      })
-      .catch(() => !cancelled && setError("network error"))
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-      controller.abort();
+    const load = async () => {
+      const attempt = ++revision;
+      setLoading(true); setError(null); setData(null); setDestScore(null); setRouteNote(null);
+      if (fromLat === undefined || fromLng === undefined) {
+        setError("Location unavailable. Enable location or choose a start point to get a route.");
+        setLoading(false); return;
+      }
+      try {
+        const result = await loadRoute({ lat: fromLat, lng: fromLng }, { lat: toLat, lng: toLng }, controller.signal);
+        if (cancelled || attempt !== revision) return;
+        setData(result.value);
+        setRouteNote(result.cached ? `Saved route · ${new Date(result.savedAt).toLocaleString()}. Route and scores may be outdated; basemap tiles and place search need internet.` : null);
+        // Destination scoring failure must not discard an otherwise usable route.
+        if (!result.cached) {
+          void fetchJson<{ score?: number }>(`/api/score?lat=${toLat}&lng=${toLng}`, { signal: controller.signal })
+            .then(({ response, data }) => response.ok ? data : null)
+            .then((j) => { if (!cancelled && attempt === revision && typeof j?.score === "number") setDestScore(j.score); })
+            .catch(() => {});
+        }
+      } catch (err) {
+        if (!cancelled && attempt === revision) setError(err instanceof Error ? err.message : "Routing unavailable. Try again online.");
+      } finally { if (!cancelled && attempt === revision) setLoading(false); }
     };
+    const retry = () => { if (!controller.signal.aborted) void load(); };
+    void load();
+    addEventListener("online", retry);
+    addEventListener("offline", retry);
+    return () => { cancelled = true; controller.abort(); removeEventListener("online", retry); removeEventListener("offline", retry); };
   }, [toLat, toLng, fromLat, fromLng]);
 
   // Destination changes do not rebuild the safety grid or route geometry.
@@ -320,7 +347,7 @@ export default function MapView() {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     if (cells.length) {
-      (map.getSource("cells") as GeoJSONSource).setData({
+      (map.getSource("cells") as GeoJSONSource | undefined)?.setData({
         type: "FeatureCollection",
         features: cells.map((c) => {
           const score = scoreOf(c, scoreHour);
@@ -339,11 +366,11 @@ export default function MapView() {
     if (!map || !mapReady) return;
     if (data) {
       const byId = (id: number) => data.routes.find((r) => r.id === id);
-      (map.getSource("shortest") as GeoJSONSource).setData(routeFc(byId(data.shortestId)));
-      (map.getSource("safest") as GeoJSONSource).setData(routeFc(byId(data.safestId)));
+      (map.getSource("shortest") as GeoJSONSource | undefined)?.setData(routeFc(byId(data.shortestId)));
+      (map.getSource("safest") as GeoJSONSource | undefined)?.setData(routeFc(byId(data.safestId)));
     } else {
-      (map.getSource("shortest") as GeoJSONSource).setData(routeFc());
-      (map.getSource("safest") as GeoJSONSource).setData(routeFc());
+      (map.getSource("shortest") as GeoJSONSource | undefined)?.setData(routeFc());
+      (map.getSource("safest") as GeoJSONSource | undefined)?.setData(routeFc());
     }
   }, [mapReady, data]);
 
@@ -373,11 +400,28 @@ export default function MapView() {
       </header>
 
       <div className="absolute bottom-3 left-3 z-10 w-[min(24rem,calc(100vw-1.5rem))] space-y-2">
-        {cellsSource === "fake" && (
+        {cellsNote && (
           <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-amber-300">
-            {cellsNote} Showing synthetic demo safety data. Reload to retry.
+            {cellsNote}
           </p>
         )}
+        <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-muted-foreground">
+          {locationNote}{" "}
+          <button className="underline" onClick={() => {
+            centeredRef.current = false; setFix(null);
+            setLocationNote("Waiting for a fresh device location.");
+            setLocationAttempt(value => value + 1);
+          }}>Retry GPS</button>
+        </p>
+        {fix && cells.length > 0 && !cells.some(c => Math.abs(c.lat - fix.lat) < 0.006 && Math.abs(c.lng - fix.lng) < 0.006) && (
+          <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-amber-300">No safety-cell coverage near your location. Available dots cover the Kathmandu dataset only.</p>
+        )}
+        <button className="text-xs underline" onClick={async () => {
+          if (!routeOrigin) { setError("Enable location or choose a start point first."); return; }
+          const destination = await lastRouteDestination(routeOrigin);
+          if (destination) pickDestination(destination);
+          else setError("No saved route for this start point. Generate a route online first.");
+        }}>Reuse last saved destination</button>
         <div className="space-y-1.5">
           <PlaceSearch
             placeholder="Go to (e.g. Ring Road, Thamel)"
@@ -422,7 +466,7 @@ export default function MapView() {
             {voiceArmed ? "🎙 Voice SOS armed" : "🎙 Voice SOS"}
           </button>
           <button
-            onClick={() => setReporting(true)}
+            onClick={() => picked || fix ? setReporting(true) : setError("Enable location or select a spot on the map before reporting.")}
             className="flex-1 rounded-xl bg-black/70 px-3 py-3 text-sm backdrop-blur"
           >
             Report a spot
@@ -434,10 +478,10 @@ export default function MapView() {
             Authority view
           </button>
         </div>
-        {reporting && (
+        {reporting && (picked || fix) && (
           <ReportSheet
-            lat={picked?.lat ?? userPos?.[1] ?? CENTER[1]}
-            lng={picked?.lng ?? userPos?.[0] ?? CENTER[0]}
+            lat={picked?.lat ?? fix!.lat}
+            lng={picked?.lng ?? fix!.lng}
             onClose={() => setReporting(false)}
           />
         )}
@@ -470,15 +514,11 @@ export default function MapView() {
             /100
           </div>
         )}
+        {routeNote && <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-amber-300">{routeNote}</p>}
         {same && shortest && <RouteCard r={shortest} label="Best route (safest & shortest)" best />}
         {data && !same && safest && <RouteCard r={safest} label="Safest route" best />}
         {data && !same && shortest && shortest.id !== safest?.id && (
           <RouteCard r={shortest} label="Shortest route" best={false} />
-        )}
-        {userPos === null && picked && (
-          <div className="text-[11px] text-muted-foreground">
-            Demo origin: Kathmandu center (enable location for yours)
-          </div>
         )}
       </div>
     </div>

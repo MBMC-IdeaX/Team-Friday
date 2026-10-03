@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { fetchJson } from "@/lib/network";
 
 // Place search, so a user can type where they are going instead of hunting for a
 // pin on a map. Geocoding is OpenStreetMap Nominatim — free, no key, and the same
@@ -40,28 +41,34 @@ export function usePlaceSearch(minChars = 3) {
       timer.current = null;
       return;
     }
+    const controller = new AbortController();
+    let cancelled = false;
     timer.current = setTimeout(() => {
+      setSearching(true);
       const url = new URL(ENDPOINT);
       url.searchParams.set("q", q);
       url.searchParams.set("format", "jsonv2");
       url.searchParams.set("limit", "6");
       url.searchParams.set("accept-language", "en");
-      fetch(url)
-        .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      fetchJson<{ display_name: string; lat: string; lon: string }[]>(url, { signal: controller.signal })
+        .then(({ response, data }) => response.ok ? data : Promise.reject(response.status))
         .then((json: { display_name: string; lat: string; lon: string }[]) => {
+          if (cancelled) return;
           setResults(
             json.map((j) => ({ label: j.display_name, lat: +j.lat, lng: +j.lon })),
           );
           setFailed(false);
         })
         .catch(() => {
+          if (cancelled) return;
           // Never a dead end: the user can still tap the map to set a point.
           setResults([]);
           setFailed(true);
         })
-        .finally(() => setSearching(false));
+        .finally(() => { if (!cancelled) setSearching(false); });
     }, 600);
     return () => {
+      cancelled = true; controller.abort();
       if (timer.current) clearTimeout(timer.current);
     };
   }, [query, minChars]);
@@ -115,7 +122,7 @@ export default function PlaceSearch({
           ))}
           {!searching && results.length === 0 && failed && (
             <li className="px-3 py-2 text-xs text-amber-400">
-              Place search is unavailable. You can still tap the map to choose a point.
+              Place search needs internet and may be unavailable. Tap the map or reuse a saved destination.
             </li>
           )}
         </ul>

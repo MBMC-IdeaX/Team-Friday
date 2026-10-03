@@ -172,3 +172,15 @@ test('both UI paths use durable end; SQL no-op and atomic terminal semantics are
   assert.match(sql, /alter column triggered_by drop not null/);
   assert.match(sql, /revoke all on function public.persist_sos_terminal\(uuid, text\) from public, anon, authenticated/);
 });
+
+test('SOS persists unknown GPS without demo coordinates, then accepts a real active pin', async () => {
+  const a = api();
+  assert.equal((await a.create({ lat: null, lng: null })).status, 200);
+  assert.equal(a.sessions.get(A).lat, null); assert.equal(a.sessions.get(A).lng, null);
+  assert.equal((await a.patch({ lat: 27.74, lng: 85.36 })).status, 200);
+  assert.equal(a.sessions.get(A).lat, 27.74);
+  await a.create({ lat: null, lng: null });
+  assert.equal(a.sessions.get(A).lat, 27.74, 'initial replay cannot erase a newer real pin');
+  assert.equal((await api().create({ lat: null, lng: 85 })).status, 400);
+  assert.equal((await api().create({ lat: 91, lng: 85 })).status, 400);
+});

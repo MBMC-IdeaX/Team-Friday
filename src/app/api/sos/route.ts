@@ -26,8 +26,9 @@ export async function POST(req: NextRequest) {
   if (!TRIGGERS.includes(body?.triggered_by)) {
     return NextResponse.json({ error: "triggered_by must be tap or voice" }, { status: 400 });
   }
-  if (lat === null || lng === null) {
-    return NextResponse.json({ error: "lat and lng required" }, { status: 400 });
+  const unknownLocation = body?.lat == null && body?.lng == null;
+  if (!unknownLocation && (lat === null || lng === null || Math.abs(lat) > 90 || Math.abs(lng) > 180)) {
+    return NextResponse.json({ error: "Coordinates must be a valid pair or both unknown" }, { status: 400 });
   }
 
   const { data: created, error } = await supabase()!.rpc("persist_sos_initial", {

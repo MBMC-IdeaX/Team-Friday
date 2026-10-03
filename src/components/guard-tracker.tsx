@@ -98,6 +98,7 @@ export default function GuardTracker({ id }: { id: string }) {
       el.style.cssText =
         "width:18px;height:18px;border-radius:50%;background:#ef4444;border:3px solid #fff;box-shadow:0 0 12px #ef4444";
       markerRef.current = new Marker({ element: el }).setLngLat([pin.lng, pin.lat]).addTo(mapRef.current);
+      mapRef.current.jumpTo({ center: [pin.lng, pin.lat], zoom: 14 });
     }
   }, [mapReady, pin]);
 
@@ -126,7 +127,7 @@ export default function GuardTracker({ id }: { id: string }) {
             : status === "offline"
               ? "Waiting for connection"
               : session?.status === "active"
-                ? "Tracking live"
+                ? (pin ? "Tracking live" : "SOS active · waiting for location")
                 : session
                   ? `Session ${session.status}`
                   : "Loading…"}
