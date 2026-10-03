@@ -1,30 +1,52 @@
-// Offline shell. Precaches the app, serves valid saved safety data when the network fails,
-// leaves basemap tiles alone. ponytail: no workbox — two strategies and a push
-// handler is the whole requirement.
-//
-// Bump VERSION on deploy: hashed /_next/static assets are cached forever, so an
-// old HTML shell must not be paired with a new asset set.
-
+// Public pages are cached by URL; never substitute the map for another screen.
 const VERSION = "hg-v1";
-const SHELL = `${VERSION}-shell`;
+const SHELL = `${VERSION}-shell-pages-v2`;
 const DATA = `${VERSION}-data`;
+const OFFLINE_PAGES = ["/", "/sos", "/guardians", "/rights", "/help", "/login"];
+const PRECACHE = [...OFFLINE_PAGES, "/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/maplibre-gl-worker.mjs", "/maplibre-gl-shared.mjs"];
 
-const PRECACHE = ["/", "/manifest.webmanifest", "/icon.svg", "/apple-touch-icon.png"];
+// Includes chunk references in Next's inline component payload, not just script tags.
+function staticAssets(text, base) {
+  const assets = new Set();
+  const chunks = text.match(/(?:\/?_next\/)?static\/(?:chunks|css|media)\/[a-zA-Z0-9_./%-]+/g) ?? [];
+  for (const chunk of chunks) {
+    if (!/\.(?:js|mjs|css|woff2?|ttf|otf|png|svg|jpe?g|webp|ico)$/.test(chunk)) continue;
+    assets.add(new URL(chunk.startsWith("/_next/") ? chunk : `/_next/${chunk.replace(/^_next\//, "")}`, self.location.origin).href);
+  }
+  if (new URL(base).pathname.endsWith(".css")) for (const match of text.matchAll(/url\(["']?([^\s"')]+)["']?\)/g)) {
+    const url = new URL(match[1], base);
+    if (url.origin === self.location.origin && url.pathname.startsWith("/_next/static/")) assets.add(url.href);
+  }
+  return [...assets];
+}
 
-self.addEventListener("install", (e) => {
-  e.waitUntil(
-    caches
-      .open(SHELL)
-      .then((c) => c.addAll(PRECACHE))
-      .then(() => self.skipWaiting()),
-  );
+async function prepareOfflinePages() {
+  const cache = await caches.open(SHELL);
+  const pending = PRECACHE.map(path => new URL(path, self.location.origin).href);
+  const visited = new Set();
+  while (pending.length) {
+    const url = pending.shift();
+    if (visited.has(url)) continue;
+    visited.add(url);
+    const response = await fetch(url, { cache: "reload", credentials: "omit" });
+    if (!response.ok || response.redirected) throw new Error("Offline preparation failed");
+    const type = response.headers.get("Content-Type") ?? "";
+    if (/text\/html|javascript|text\/css/.test(type)) {
+      pending.push(...staticAssets(await response.clone().text(), url));
+    }
+    await cache.put(url, response);
+  }
+}
+
+self.addEventListener("install", e => {
+  e.waitUntil(prepareOfflinePages().then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => !k.startsWith(VERSION)).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k === `${VERSION}-shell`).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
@@ -41,21 +63,33 @@ self.addEventListener("fetch", (e) => {
     e.respondWith(networkFirstShell(request));
   } else if (url.pathname === "/api/cells") {
     e.respondWith(safetyData(request));
-  } else if (url.pathname.startsWith("/_next/static/")) {
+  } else if (url.pathname.startsWith("/_next/static/") || (PRECACHE.includes(url.pathname) && !OFFLINE_PAGES.includes(url.pathname))) {
     e.respondWith(cacheFirst(request));
   }
 });
 
+function unavailableOffline() {
+  return new Response(`<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HerGuardian · Offline</title><body style="background:#111;color:white;font:18px system-ui;padding:24px"><h1>This page needs internet</h1><p>Reconnect to open this page. Your saved information has not been deleted.</p><p><a style="color:#75d5df" href="/">Map</a> · <a style="color:#75d5df" href="/guardians">Guardians</a> · <a style="color:#75d5df" href="/rights">Rights</a> · <a style="color:#75d5df" href="/help">Help</a> · <a style="color:#75d5df" href="/sos">SOS</a></p></body></html>`, { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
+
 async function networkFirstShell(request) {
   const cache = await caches.open(SHELL);
+  const url = new URL(request.url);
+  const path = url.pathname;
+  const hit = OFFLINE_PAGES.includes(path) ? await cache.match(new URL(path, self.location.origin).href) : null;
+  if (self.navigator?.onLine === false) return hit ?? unavailableOffline();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
   try {
-    const fresh = await fetch(request);
-    // cached under "/" so any route falls back to the same shell offline
-    cache.put("/", fresh.clone());
+    const fresh = await fetch(request, { signal: controller.signal });
+    // Only public page HTML belongs here; session links and API/RSC data do not.
+    if (OFFLINE_PAGES.includes(path) && fresh.ok && !fresh.redirected && (fresh.headers.get("Content-Type") ?? "").includes("text/html")) {
+      await cache.put(new URL(path, self.location.origin).href, fresh.clone()).catch(() => {});
+    }
     return fresh;
   } catch {
-    return (await cache.match("/")) ?? Response.error();
-  }
+    return hit ?? unavailableOffline();
+  } finally { clearTimeout(timeout); }
 }
 
 function validSafety(value) {

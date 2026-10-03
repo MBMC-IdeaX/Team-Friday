@@ -25,9 +25,10 @@ import { startVoiceSos, voiceSupported } from "@/lib/voice";
 import { activeSessionId, endSosSession } from "@/lib/offline";
 import { BRAND, CENTER, STYLE, scoreColor } from "@/lib/map-style";
 
+import { navigateTo } from "@/lib/navigation";
 import { fetchJson } from "@/lib/network";
 import { watchDeviceLocation, routingOrigin, type DeviceLocation } from "@/lib/location";
-import { readSafetyCache, saveSafetyCache, validSafetyData, loadRoute, lastRouteDestination, type Route, type RoutesRes } from "@/lib/map-cache";
+import { readSafetyCache, saveSafetyCache, validSafetyData, loadRoute, readLastJourney, type Route, type RoutesRes } from "@/lib/map-cache";
 
 const fmtTime = (sec: number) => `${Math.round(sec / 60)} min`;
 const fmtDist = (m: number) => `${(m / 1000).toFixed(1)} km`;
@@ -81,6 +82,7 @@ export default function MapView() {
   const [locationAttempt, setLocationAttempt] = useState(0);
   const [fix, setFix] = useState<DeviceLocation | null>(null);
   const [locationNote, setLocationNote] = useState("Waiting for device location. The initial map center is not your position.");
+  const [savedJourney, setSavedJourney] = useState<Awaited<ReturnType<typeof readLastJourney>>>(null);
   const [routeNote, setRouteNote] = useState<string | null>(null);
   const [data, setData] = useState<RoutesRes | null>(null);
   const [destScore, setDestScore] = useState<number | null>(null);
@@ -96,6 +98,7 @@ export default function MapView() {
 
   const pickDestination = useCallback((next: Picked) => {
     if (pickedRef.current?.lat === next.lat && pickedRef.current.lng === next.lng) return;
+    setSavedJourney(null);
     pickedRef.current = next;
     setPicked(next);
     setData(null);
@@ -121,7 +124,7 @@ export default function MapView() {
       return;
     }
     stopVoiceRef.current = startVoiceSos(
-      () => router.push("/sos"),
+      () => navigateTo("/sos", router),
       (message) => {
         setVoiceNote(message);
         setVoiceArmed(false);
@@ -308,6 +311,11 @@ export default function MapView() {
         setLoading(false); return;
       }
       try {
+        if (savedJourney && savedJourney.from.lat === fromLat && savedJourney.from.lng === fromLng && savedJourney.to.lat === toLat && savedJourney.to.lng === toLng) {
+          setData(savedJourney.value);
+          setRouteNote(`Saved journey · ${new Date(savedJourney.savedAt).toLocaleString()}. Original start: ${fromLat}, ${fromLng}; not your live GPS start. Route and scores may be outdated.`);
+          return;
+        }
         const result = await loadRoute({ lat: fromLat, lng: fromLng }, { lat: toLat, lng: toLng }, controller.signal);
         if (cancelled || attempt !== revision) return;
         setData(result.value);
@@ -328,7 +336,7 @@ export default function MapView() {
     addEventListener("online", retry);
     addEventListener("offline", retry);
     return () => { cancelled = true; controller.abort(); removeEventListener("online", retry); removeEventListener("offline", retry); };
-  }, [toLat, toLng, fromLat, fromLng]);
+  }, [toLat, toLng, fromLat, fromLng, savedJourney]);
 
   // Destination changes do not rebuild the safety grid or route geometry.
   useEffect(() => {
@@ -392,7 +400,7 @@ export default function MapView() {
         </svg>
         <span className="font-semibold">HerGuardian</span>
         <button
-          onClick={() => router.push("/login")}
+          onClick={() => navigateTo("/login", router)}
           className="-my-2 rounded-lg px-2 py-2 text-xs text-muted-foreground underline"
         >
           sign in (optional)
@@ -417,11 +425,18 @@ export default function MapView() {
           <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-amber-300">No safety-cell coverage near your location. Available dots cover the Kathmandu dataset only.</p>
         )}
         <button className="text-xs underline" onClick={async () => {
-          if (!routeOrigin) { setError("Enable location or choose a start point first."); return; }
-          const destination = await lastRouteDestination(routeOrigin);
-          if (destination) pickDestination(destination);
-          else setError("No saved route for this start point. Generate a route online first.");
-        }}>Reuse last saved destination</button>
+          const journey = await readLastJourney();
+          if (!journey) { setError("No saved journey is available. Generate a route online first."); return; }
+          pickedRef.current = journey.to;
+          setPicked(journey.to); setOrigin(journey.from); setSavedJourney(journey);
+          centeredRef.current = true;
+          setError(null); setDestScore(null);
+          const coords = journey.value.routes.flatMap(route => route.coords);
+          if (coords.length && mapRef.current) {
+            const bounds = coords.reduce((box, [lng, lat]) => [Math.min(box[0], lng), Math.min(box[1], lat), Math.max(box[2], lng), Math.max(box[3], lat)], [Infinity, Infinity, -Infinity, -Infinity]);
+            mapRef.current.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]], { padding: 50, duration: 0 });
+          }
+        }}>Reopen last saved journey</button>
         <div className="space-y-1.5">
           <PlaceSearch
             placeholder="Go to (e.g. Ring Road, Thamel)"
@@ -429,11 +444,11 @@ export default function MapView() {
           />
           <PlaceSearch
             placeholder="Start from (defaults to you)"
-            onPick={(r) => setOrigin({ lat: r.lat, lng: r.lng })}
+            onPick={(r) => { setSavedJourney(null); setOrigin({ lat: r.lat, lng: r.lng }); }}
           />
           {origin && (
             <button
-              onClick={() => setOrigin(null)}
+              onClick={() => { setSavedJourney(null); setOrigin(null); }}
               className="w-full rounded-lg bg-black/70 px-2 py-1.5 text-[11px] text-muted-foreground"
             >
               Using a fixed start point · tap to go back to your location
@@ -441,7 +456,7 @@ export default function MapView() {
           )}
         </div>
         <button
-          onClick={() => (activeSession ? endSession() : router.push("/sos"))}
+          onClick={() => (activeSession ? endSession() : navigateTo("/sos", router))}
           className={`w-full rounded-xl py-4 text-center text-lg font-bold tracking-wide text-white ${
             activeSession ? "bg-red-950 text-red-300 ring-1 ring-red-500/50" : "bg-red-600"
           }`}
@@ -472,7 +487,7 @@ export default function MapView() {
             Report a spot
           </button>
           <button
-            onClick={() => router.push("/dashboard")}
+            onClick={() => navigateTo("/dashboard", router)}
             className="flex-1 rounded-xl bg-black/70 px-3 py-3 text-sm backdrop-blur"
           >
             Authority view

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 
+import { offlineLink } from "@/lib/navigation";
 import { flushOutbox, flushRecordings } from "@/lib/offline";
 
 // App-startup wiring, mounted once from layout so /sos and /guard/[id] get it too.
@@ -35,9 +36,13 @@ export default function Bootstrap() {
       void flushRecordings().catch(() => {});
     };
     flush();
+    document.addEventListener("click", offlineLink, true);
     const onOnline = () => flush();
     addEventListener("online", onOnline);
-    return () => removeEventListener("online", onOnline);
+    return () => {
+      removeEventListener("online", onOnline);
+      document.removeEventListener("click", offlineLink, true);
+    };
   }, []);
 
   return null;

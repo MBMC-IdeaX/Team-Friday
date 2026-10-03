@@ -58,14 +58,19 @@ export async function saveRouteCache(key: string, value: unknown) {
 }
 
 const LAST_ROUTE_KEY = "/__offline/last-route";
-export async function lastRouteDestination(from: { lat: number; lng: number }) {
+export async function readLastJourney() {
   try {
     const response = await (await caches.open(CACHE)).match(LAST_ROUTE_KEY);
     const last = response ? await response.json() : null;
-    if (!last || last.from?.lat !== from.lat || last.from?.lng !== from.lng ||
-        !finite(last.to?.lat) || !finite(last.to?.lng) || Math.abs(last.to.lat) > 90 || Math.abs(last.to.lng) > 180) return null;
-    return await readRouteCache(routeCacheKey(from, last.to)) ? last.to as { lat: number; lng: number } : null;
+    const point = (p: { lat: number; lng: number } | null) => p && finite(p.lat) && finite(p.lng) && Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180;
+    if (!last || !point(last.from) || !point(last.to)) return null;
+    const saved = await readRouteCache(routeCacheKey(last.from, last.to));
+    return saved ? { ...saved, from: last.from as { lat: number; lng: number }, to: last.to as { lat: number; lng: number } } : null;
   } catch { return null; }
+}
+export async function lastRouteDestination(from: { lat: number; lng: number }) {
+  const last = await readLastJourney();
+  return last && last.from.lat === from.lat && last.from.lng === from.lng ? last.to : null;
 }
 export async function loadRoute(from: { lat: number; lng: number }, to: { lat: number; lng: number }, signal: AbortSignal) {
   const key = routeCacheKey(from, to);

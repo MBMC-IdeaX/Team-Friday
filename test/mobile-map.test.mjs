@@ -144,3 +144,16 @@ test('request deadline and caller cancellation stop the request without leaving 
   const request = network.fetchJson('/test', { signal: controller.signal });
   controller.abort(); await assert.rejects(request, /aborted/);
 });
+
+test('saved journey reopens original endpoints despite GPS drift or unavailable GPS, and expires honestly', async () => {
+  const store = storage(); const navigator = { onLine: true };
+  const api = load('src/lib/map-cache.ts', { caches: store.caches, navigator, fetch: async () => Response.json(routes) });
+  await api.loadRoute(from, to, new AbortController().signal); navigator.onLine = false;
+  const journey = await api.readLastJourney();
+  assert.equal(journey.from.lat, from.lat); assert.equal(journey.to.lng, to.lng);
+  assert.equal(journey.value.routes[0].coords.length, 2);
+  assert.equal(await api.lastRouteDestination({ ...from, lat: from.lat + .0002 }), null);
+  assert.equal((await api.readLastJourney()).value.routes[0].distance, 500);
+  await store.cache.put(api.routeCacheKey(from, to), Response.json({ value: routes, savedAt: Date.now() - 25 * 60 * 60 * 1000 }));
+  assert.equal(await api.readLastJourney(), null);
+});

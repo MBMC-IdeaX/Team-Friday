@@ -17,6 +17,7 @@ import {
   saveRecording,
   type Guardian,
 } from "@/lib/offline";
+import { navigateTo } from "@/lib/navigation";
 import { fetchJson } from "@/lib/network";
 import { currentDeviceLocation, sosSeed, watchDeviceLocation } from "@/lib/location";
 import { joinSession } from "@/lib/realtime";
@@ -91,6 +92,9 @@ export default function SosPage() {
     let cancelled = false;
     void (async () => {
       const previous = activeSessionId();
+      if (previous && !navigator.onLine) {
+        setSessionId(previous); setPhase("queued"); return;
+      }
       if (previous) {
         const existing = await fetch(`/api/sos?id=${previous}`)
           .then((r) => (r.ok ? r.json() : null))
@@ -114,6 +118,7 @@ export default function SosPage() {
       if (cancelled) return;
       setSessionId(id);
       setActiveSession(id);
+      if (!navigator.onLine) { setPhase("queued"); return; }
       const delivered = await deliverQueuedRequest(queuedKey, "/api/sos", seed);
       if (!cancelled) setPhase(delivered ? "live" : "queued");
     })();
@@ -310,7 +315,7 @@ export default function SosPage() {
       return;
     }
     await flushRecordings().catch(() => {});
-    router.push("/");
+    navigateTo("/", router);
   };
 
   return (
