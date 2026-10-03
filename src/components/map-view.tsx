@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Map as MLMap,
   Marker,
@@ -38,7 +38,7 @@ type Picked = { lat: number; lng: number };
 import PlaceSearch from "@/components/place-search";
 import ReportSheet from "@/components/report-sheet";
 import { startVoiceSos, voiceSupported } from "@/lib/voice";
-import { activeSessionId, clearActiveSession } from "@/lib/offline";
+import { activeSessionId, endSosSession } from "@/lib/offline";
 import { BRAND, CENTER, STYLE, scoreColor } from "@/lib/map-style";
 
 const fmtTime = (sec: number) => `${Math.round(sec / 60)} min`;
@@ -86,6 +86,7 @@ export default function MapView() {
   const markerRef = useRef<Marker | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [picked, setPicked] = useState<Picked | null>(null);
+  const pickedRef = useRef<Picked | null>(null);
   const [origin, setOrigin] = useState<Picked | null>(null);
   const [userPos, setUserPos] = useState<[number, number] | null>(null);
   const [data, setData] = useState<RoutesRes | null>(null);
@@ -93,10 +94,23 @@ export default function MapView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cells, setCells] = useState<Cell[]>([]);
+  const [cellsSource, setCellsSource] = useState<"db" | "fake" | null>(null);
+  const [cellsNote, setCellsNote] = useState<string | null>(null);
+  const [scoreHour, setScoreHour] = useState(() => new Date().getHours());
   const [reporting, setReporting] = useState(false);
   const [voiceArmed, setVoiceArmed] = useState(false);
   const [voiceNote, setVoiceNote] = useState<string | null>(null);
   const [activeSession, setActiveSession] = useState<string | null>(null);
+
+  const pickDestination = useCallback((next: Picked) => {
+    if (pickedRef.current?.lat === next.lat && pickedRef.current.lng === next.lng) return;
+    pickedRef.current = next;
+    setPicked(next);
+    setData(null);
+    setDestScore(null);
+    setError(null);
+    setLoading(true);
+  }, []);
 
   // Voice SOS. Arms only from a click, because Web Speech will not start without a
   // gesture. On a match it just routes into /sos — every reliability property
@@ -138,14 +152,13 @@ export default function MapView() {
 
   const endSession = async () => {
     const id = activeSessionId();
-    clearActiveSession();
-    setActiveSession(null);
     if (!id) return;
-    await fetch("/api/sos", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status: "resolved" }),
-    }).catch(() => {});
+    try {
+      await endSosSession(id);
+      setActiveSession(null);
+    } catch {
+      alert("Could not save the end request. Please try again.");
+    }
   };
 
   // init map once
@@ -169,13 +182,10 @@ export default function MapView() {
     );
     map.addControl(geo, "top-right");
     map.on("click", (e: MapMouseEvent) => {
-      setPicked({ lat: +e.lngLat.lat.toFixed(5), lng: +e.lngLat.lng.toFixed(5) });
-      setData(null);
-      setDestScore(null);
-      setError(null);
-      setLoading(true);
+      pickDestination({ lat: +e.lngLat.lat.toFixed(5), lng: +e.lngLat.lng.toFixed(5) });
     });
-    map.on("load", () => {
+    // style.load permits adding sources/layers without waiting for raster tiles.
+    map.once("style.load", () => {
       map.addSource("cells", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -213,30 +223,71 @@ export default function MapView() {
       }
       setMapReady(true);
     });
+    const resize = new ResizeObserver(() => map.resize());
+    resize.observe(containerRef.current);
     return () => {
+      resize.disconnect();
+      markerRef.current?.remove();
+      markerRef.current = null;
       map.remove();
       mapRef.current = null;
     };
-  }, []);
+  }, [pickDestination]);
 
   // load safety cells (DB-backed server side, FAKE fallback if unconfigured)
   useEffect(() => {
-    fetch("/api/cells")
-      .then((r) => r.json())
-      .then((j) => setCells(Array.isArray(j.cells) && j.cells.length ? j.cells : buildCells()))
-      .catch(() => setCells(buildCells()));
+    const controller = new AbortController();
+    let cancelled = false;
+    const timeout = setTimeout(() => controller.abort(), 8_000);
+    fetch("/api/cells", { signal: controller.signal })
+      .then((r) => {
+        if (!r.ok) throw new Error(`Safety data request failed (${r.status}).`);
+        return r.json();
+      })
+      .then((j) => {
+        if (cancelled) return;
+        if (!Array.isArray(j.cells) || !j.cells.length || !["db", "fake"].includes(j.source)) {
+          throw new Error("Safety data response is invalid.");
+        }
+        setCells(j.cells);
+        setCellsSource(j.source);
+        setCellsNote(j.source === "fake" ? "Database safety data is unavailable or unconfigured." : null);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        // FAKE: keep the demo overlay usable, and label its synthetic source.
+        setCells(buildCells());
+        setCellsSource("fake");
+        setCellsNote(controller.signal.aborted ? "Safety data request timed out." : err instanceof Error ? err.message : "Safety data request failed.");
+      })
+      .finally(() => clearTimeout(timeout));
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+      controller.abort();
+    };
   }, []);
+
+  useEffect(() => {
+    const tick = setInterval(() => setScoreHour(new Date().getHours()), 60_000);
+    return () => clearInterval(tick);
+  }, []);
+
+  // Quantize only the routing origin (~10 m), not the live GPS/SOS position.
+  const fromLat = origin?.lat ?? (userPos ? +userPos[1].toFixed(4) : CENTER[1]);
+  const fromLng = origin?.lng ?? (userPos ? +userPos[0].toFixed(4) : CENTER[0]);
+  const toLat = picked?.lat;
+  const toLng = picked?.lng;
 
   // fetch score + routes for destination
   useEffect(() => {
-    if (!picked) return;
+    if (toLat === undefined || toLng === undefined) return;
     let cancelled = false;
-    const from =
-      origin ?? (userPos ? { lat: userPos[1], lng: userPos[0] } : null) ?? { lat: CENTER[1], lng: CENTER[0] };
-    const q = `from=${from.lat},${from.lng}&to=${picked.lat},${picked.lng}`;
+    const controller = new AbortController();
+    const q = `from=${fromLat},${fromLng}&to=${toLat},${toLng}`;
     Promise.all([
-      fetch(`/api/score?lat=${picked.lat}&lng=${picked.lng}`).then((r) => r.json()),
-      fetch(`/api/routes?${q}`).then((r) => r.json().then((j) => ({ ok: r.ok, j }))),
+      fetch(`/api/score?lat=${toLat}&lng=${toLng}`, { signal: controller.signal }).then((r) => r.json()),
+      fetch(`/api/routes?${q}`, { signal: controller.signal }).then((r) => r.json().then((j) => ({ ok: r.ok, j }))),
     ])
       .then(([score, routes]) => {
         if (cancelled) return;
@@ -248,25 +299,31 @@ export default function MapView() {
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [picked, userPos, origin]);
+  }, [toLat, toLng, fromLat, fromLng]);
 
-  // draw destination marker + route lines
+  // Destination changes do not rebuild the safety grid or route geometry.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    if (markerRef.current) markerRef.current.remove();
     if (picked) {
-      markerRef.current = new Marker({ color: BRAND })
-        .setLngLat([picked.lng, picked.lat])
-        .addTo(map);
+      if (markerRef.current) markerRef.current.setLngLat([picked.lng, picked.lat]);
+      else markerRef.current = new Marker({ color: BRAND }).setLngLat([picked.lng, picked.lat]).addTo(map);
+    } else {
+      markerRef.current?.remove();
+      markerRef.current = null;
     }
+  }, [mapReady, picked]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
     if (cells.length) {
-      const hour = new Date().getHours();
       (map.getSource("cells") as GeoJSONSource).setData({
         type: "FeatureCollection",
         features: cells.map((c) => {
-          const score = scoreOf(c, hour);
+          const score = scoreOf(c, scoreHour);
           return {
             type: "Feature" as const,
             properties: { score, risk: (100 - score) / 100 },
@@ -275,6 +332,11 @@ export default function MapView() {
         }),
       });
     }
+  }, [mapReady, cells, scoreHour]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
     if (data) {
       const byId = (id: number) => data.routes.find((r) => r.id === id);
       (map.getSource("shortest") as GeoJSONSource).setData(routeFc(byId(data.shortestId)));
@@ -283,14 +345,14 @@ export default function MapView() {
       (map.getSource("shortest") as GeoJSONSource).setData(routeFc());
       (map.getSource("safest") as GeoJSONSource).setData(routeFc());
     }
-  }, [mapReady, picked, data, cells]);
+  }, [mapReady, data]);
 
   const shortest = data?.routes.find((r) => r.id === data.shortestId);
   const safest = data?.routes.find((r) => r.id === data.safestId);
   const same = data && data.shortestId === data.safestId;
 
   return (
-    <div className="relative flex-1">
+    <div className="relative min-h-0 flex-1">
       {/* maplibre's unlayered CSS forces position:relative on .maplibregl-map (beats
           Tailwind layers), and % heights don't resolve against the flex parent —
           inline absolute+inset stretches against the parent's used height instead */}
@@ -311,10 +373,15 @@ export default function MapView() {
       </header>
 
       <div className="absolute bottom-3 left-3 z-10 w-[min(24rem,calc(100vw-1.5rem))] space-y-2">
+        {cellsSource === "fake" && (
+          <p role="status" className="rounded-xl bg-black/80 px-3 py-2 text-xs text-amber-300">
+            {cellsNote} Showing synthetic demo safety data. Reload to retry.
+          </p>
+        )}
         <div className="space-y-1.5">
           <PlaceSearch
             placeholder="Go to (e.g. Ring Road, Thamel)"
-            onPick={(r) => setPicked({ lat: r.lat, lng: r.lng })}
+            onPick={(r) => pickDestination({ lat: r.lat, lng: r.lng })}
           />
           <PlaceSearch
             placeholder="Start from (defaults to you)"

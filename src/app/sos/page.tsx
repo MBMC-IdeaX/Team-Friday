@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
-  clearActiveSession,
+  endSosSession,
+  deliverQueuedRequest,
   flushRecordings,
   listGuardians,
   newId,
@@ -29,7 +30,7 @@ const ORIGIN_FALLBACK = "";
 
 // Press order matters and is deliberate: the session is written to IndexedDB and
 // the uuid is generated BEFORE any fetch, so "SOS fired" is true even with no
-// signal. The duplicate POST that follows is an upsert, so replaying it is free.
+// signal. Initial creation is create-once, so stale replay cannot change a session.
 //
 // Pins are never queued — a stale pin misplaces her. The next watchPosition tick
 // retries by itself, so the guardian view self-heals one interval after signal.
@@ -104,18 +105,15 @@ export default function SosPage() {
       // The durable write is best-effort: if it fails we still open the session and
       // still go to the network, because a blocked local store must never be the
       // reason the panic button does nothing.
-      await queueRequest("/api/sos", seed).catch(() => {
+      const queuedKey = await queueRequest("/api/sos", seed).catch(() => {
         if (!cancelled) setRecNote("Offline storage unavailable — this session cannot be saved on the device.");
+        return undefined;
       });
       if (cancelled) return;
       setSessionId(id);
       setActiveSession(id);
-      const res = await fetch("/api/sos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(seed),
-      }).catch(() => null);
-      if (!cancelled) setPhase(res?.ok ? "live" : "queued");
+      const delivered = await deliverQueuedRequest(queuedKey, "/api/sos", seed);
+      if (!cancelled) setPhase(delivered ? "live" : "queued");
     })();
     listGuardians().then(setGuardians).catch(() => {});
     return () => {
@@ -289,13 +287,13 @@ export default function SosPage() {
     sirenRef.current?.stop();
     if (recRef.current?.state === "recording") recRef.current.stop();
     recStreamRef.current?.getTracks().forEach((t) => t.stop());
-    clearActiveSession();
+    try {
+      await endSosSession(sessionId);
+    } catch {
+      setGeoError("Could not save the end request. Please try again.");
+      return;
+    }
     await flushRecordings().catch(() => {});
-    await fetch("/api/sos", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: sessionId, status: "resolved" }),
-    }).catch(() => {});
     router.push("/");
   };
 

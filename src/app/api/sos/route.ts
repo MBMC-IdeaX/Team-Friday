@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 
 import { dbConfigured, supabase } from "@/lib/db";
 import { alertGuardians } from "@/lib/push-server";
@@ -30,21 +30,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "lat and lng required" }, { status: 400 });
   }
 
-  // upsert: a replayed outbox flush after a flaky create must not fail
-  const { error } = await supabase()!.from("guardian_sessions").upsert({
-    id,
-    triggered_by: body.triggered_by,
-    lat,
-    lng,
-    status: "active",
+  const { data: created, error } = await supabase()!.rpc("persist_sos_initial", {
+    p_id: id, p_triggered_by: body.triggered_by, p_lat: lat, p_lng: lng,
   });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error || typeof created !== "boolean") {
+    return NextResponse.json({ error: "Could not persist SOS" }, { status: 500 });
+  }
 
-  // Guardians are told last and the result is ignored on purpose: the session
-  // already exists, and an SOS must not wait on a push service.
-  void alertGuardians(id, lat, lng);
-
-  return NextResponse.json({ ok: true, id });
+  // Persist first; Next keeps this attempt alive after the response.
+  if (created) after(async () => {
+    try {
+      const accepted = await alertGuardians(id);
+      console.info("Initial SOS push attempt completed; provider-accepted sends:", accepted);
+    } catch {
+      console.error("Initial SOS push attempt failed; SOS remains persisted.");
+    }
+  });
+  return NextResponse.json({ ok: true, id, created, pushScheduled: created });
 }
 
 export async function PATCH(req: NextRequest) {
@@ -53,6 +55,14 @@ export async function PATCH(req: NextRequest) {
   const id = body?.id;
   if (typeof id !== "string" || !UUID.test(id)) {
     return NextResponse.json({ error: "id must be a uuid" }, { status: 400 });
+  }
+
+  if (body?.status === "resolved" || body?.status === "ended") {
+    const { error } = await supabase()!.rpc("persist_sos_terminal", {
+      p_id: id, p_status: body.status,
+    });
+    if (error) return NextResponse.json({ error: "Could not persist terminal state" }, { status: 500 });
+    return NextResponse.json({ ok: true });
   }
 
   // Pins are deliberately NOT queued. A stale pin is worse than none — it puts
@@ -70,11 +80,12 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "nothing to update" }, { status: 400 });
   }
 
-  const { error } = await supabase()!
+  const { data, error } = await supabase()!
     .from("guardian_sessions")
     .update(patch)
-    .eq("id", id);
+    .eq("id", id).eq("status", "active").select("id").maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "Active session not found" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }
 

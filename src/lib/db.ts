@@ -28,13 +28,14 @@ function decayed(risk: number, bumpedAt: string | null): number {
 const CACHE_MS = 60_000;
 let cache: { cells: Cell[]; source: "db" | "fake"; at: number } | null = null;
 
-export async function getCells(): Promise<{ cells: Cell[]; source: "db" | "fake" }> {
+export async function getCells(signal?: AbortSignal): Promise<{ cells: Cell[]; source: "db" | "fake" }> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache;
   const sb = supabase();
   if (!sb) return { cells: buildCells(), source: "fake" };
-  const { data, error } = await sb
+  const query = sb
     .from("safety_cells")
     .select("id, lat, lng, crime_risk, report_risk, report_bumped_at, lighting, crowd");
+  const { data, error } = await (signal ? query.abortSignal(signal) : query);
   if (error || !data?.length) {
     console.error("getCells failed, using FAKE:", error?.message);
     return { cells: buildCells(), source: "fake" };

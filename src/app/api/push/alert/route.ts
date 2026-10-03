@@ -1,16 +1,27 @@
 import { NextResponse } from "next/server";
 
+import { dbConfigured, supabase } from "@/lib/db";
+import { isSessionId } from "@/lib/push-contract";
 import { alertGuardians } from "@/lib/push-server";
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-// Manual trigger, so the alert path is testable without staging a real SOS.
+// Development helper only; production SOS delivery runs through /api/sos.
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
-  const sessionId = body?.sessionId;
-  if (typeof sessionId !== "string" || !UUID.test(sessionId)) {
+  if (process.env.NODE_ENV !== "development") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (!dbConfigured()) return NextResponse.json({ error: "db not configured" }, { status: 503 });
+  const body = await req.json().catch(() => null);
+  if (!isSessionId(body?.sessionId)) {
     return NextResponse.json({ error: "sessionId must be a uuid" }, { status: 400 });
   }
-  const sent = await alertGuardians(sessionId, body?.lat ?? null, body?.lng ?? null);
-  return NextResponse.json({ ok: true, sent });
+  const { data, error } = await supabase()!.from("guardian_sessions")
+    .select("id").eq("id", body.sessionId).maybeSingle();
+  if (error) return NextResponse.json({ error: "Session lookup failed" }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "Session not found" }, { status: 404 });
+  try {
+    const sent = await alertGuardians(data.id);
+    return NextResponse.json({ ok: true, sent });
+  } catch {
+    return NextResponse.json({ error: "Push attempt failed" }, { status: 503 });
+  }
 }

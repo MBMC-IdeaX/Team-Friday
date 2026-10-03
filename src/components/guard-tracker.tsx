@@ -102,10 +102,12 @@ export default function GuardTracker({ id }: { id: string }) {
   }, [mapReady, pin]);
 
   useEffect(() => {
-    void Promise.all([pushSupported(), currentPushEnabled()]).then(([supported, on]) =>
-      setPush(!supported ? "unsupported" : on ? "on" : "off"),
-    );
-  }, []);
+    let current = true;
+    void Promise.all([pushSupported(), currentPushEnabled(id)]).then(([supported, on]) => {
+      if (current) setPush(!supported ? "unsupported" : on ? "on" : "off");
+    });
+    return () => { current = false; };
+  }, [id]);
 
   useEffect(() => {
     const t = setInterval(() => setAge((a) => a + 1), 1000);
@@ -113,7 +115,7 @@ export default function GuardTracker({ id }: { id: string }) {
   }, []);
 
   return (
-    <div className="relative flex-1">
+    <div className="relative min-h-0 flex-1">
       <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
 
       <header className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-xl bg-black/70 px-3 py-2 backdrop-blur">
@@ -150,7 +152,7 @@ export default function GuardTracker({ id }: { id: string }) {
         <div className="truncate font-mono text-muted-foreground">session: {id}</div>
         <button
           onClick={async () => {
-            const r = await enablePush("guardian");
+            const r = await enablePush(id);
             setPush(r.ok ? "on" : "off");
             setPushNote(r.ok ? "You will be alerted even if this tab is closed." : (r.error ?? null));
           }}

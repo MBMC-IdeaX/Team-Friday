@@ -81,27 +81,36 @@ async function cacheFirst(request) {
   return res;
 }
 
-// S.6 fills this in; the handler is here now so adding push is an edit, not a rewrite.
+const SESSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 self.addEventListener("push", (e) => {
-  const data = e.data ? e.data.json() : {};
-  e.waitUntil(
-    self.registration.showNotification(data.title ?? "SOS — someone needs help", {
-      body: data.body ?? "Tap to open live tracking.",
-      tag: data.sessionId ?? "herguardian-sos",
-      data,
-    }),
-  );
+  let data;
+  if (!e.data) {
+    return;
+  }
+  try { data = e.data.json(); } catch {
+    return;
+  }
+  if (typeof data?.sessionId !== "string" || !SESSION_UUID.test(data.sessionId)) {
+    return;
+  }
+  e.waitUntil(self.registration.showNotification("HerGuardian SOS", {
+    body: "Emergency SOS activated. Tap to view the guardian session.",
+    tag: data.sessionId,
+    data: { sessionId: data.sessionId },
+  }).catch(() => {}));
 });
 
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   const sessionId = e.notification.data?.sessionId;
-  e.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((found) => {
-      for (const c of found) {
-        if (c.url.includes(sessionId)) return c.focus();
-      }
-      return self.clients.openWindow(sessionId ? `/guard/${sessionId}` : "/");
-    }),
-  );
+  if (typeof sessionId !== "string" || !SESSION_UUID.test(sessionId)) return;
+  const target = new URL(`/guard/${sessionId}`, self.location.origin);
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((found) => {
+    for (const client of found) {
+      const url = new URL(client.url);
+      if (url.origin === target.origin && url.pathname === target.pathname) return client.focus();
+    }
+    return self.clients.openWindow(target.href);
+  }).catch(() => {}));
 });

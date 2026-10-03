@@ -12,7 +12,7 @@ const DB_VERSION = 2;
 export const STORES = ["outbox", "guardians", "recordings", "device"] as const;
 export type Store = (typeof STORES)[number];
 
-export type OutboxItem = { id?: number; url: string; body: string; createdAt: number };
+export type OutboxItem = { id?: number; url: string; body: string; method?: "POST" | "PATCH"; createdAt: number };
 export type Guardian = { id?: number; name: string; phone: string };
 // Audio chunks, not one long file. MediaRecorder dies whenever the OS suspends
 // the page, and a single 20-minute blob that never got written is worth nothing —
@@ -52,9 +52,11 @@ function tx<T>(
   return open().then(
     (db) =>
       new Promise<T>((resolve, reject) => {
-        const req = fn(db.transaction(store, mode).objectStore(store));
-        req.onsuccess = () => resolve(req.result as T);
-        req.onerror = () => reject(req.error);
+        const transaction = db.transaction(store, mode);
+        const req = fn(transaction.objectStore(store));
+        transaction.oncomplete = () => resolve(req.result as T);
+        transaction.onabort = () => reject(transaction.error ?? new Error("Storage transaction aborted"));
+        transaction.onerror = () => reject(transaction.error ?? req.error);
       }),
   );
 }
@@ -67,9 +69,10 @@ export const idbDel = (store: Store, key: IDBValidKey): Promise<undefined> =>
 
 // -- outbox -----------------------------------------------------------------
 
-export async function queueRequest(url: string, body: unknown): Promise<void> {
-  await idbPut("outbox", {
+export async function queueRequest(url: string, body: unknown, method: "POST" | "PATCH" = "POST"): Promise<IDBValidKey> {
+  return idbPut("outbox", {
     url,
+    method,
     body: JSON.stringify(body),
     createdAt: Date.now(),
   } satisfies OutboxItem);
@@ -98,18 +101,48 @@ export async function drain<T>(
 
 async function post(item: OutboxItem): Promise<boolean> {
   const res = await fetch(item.url, {
-    method: "POST",
+    method: item.method ?? "POST",
     headers: { "Content-Type": "application/json" },
     body: item.body,
   });
   return res.ok;
 }
 
-export async function flushOutbox(): Promise<number> {
-  const items = (await idbAll<OutboxItem>("outbox")).sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
-  const sent = await drain(items, post);
-  await Promise.all(sent.flatMap((i) => (i.id == null ? [] : [idbDel("outbox", i.id)])));
-  return sent.length;
+export const acknowledgeRequest = (key: IDBValidKey) => idbDel("outbox", key);
+
+export async function deliverQueuedRequest(key: IDBValidKey | undefined, url: string,
+  body: unknown, method: "POST" | "PATCH" = "POST"): Promise<boolean> {
+  try {
+    const ok = await post({ url, body: JSON.stringify(body), method, createdAt: Date.now() });
+    if (ok && key !== undefined) await acknowledgeRequest(key).catch(() => {});
+    return ok;
+  } catch { return false; }
+}
+
+// Persist terminal intent before removing the locally active UUID.
+export async function endSosSession(id: string): Promise<boolean> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    throw new Error("Invalid SOS session");
+  }
+  const body = { id, status: "resolved" };
+  const key = await queueRequest("/api/sos", body, "PATCH");
+  if (activeSessionId() === id) clearActiveSession();
+  return deliverQueuedRequest(key, "/api/sos", body, "PATCH");
+}
+
+let outboxFlight: Promise<number> | null = null;
+export function flushOutbox(): Promise<number> {
+  if (outboxFlight) return outboxFlight;
+  outboxFlight = (async () => {
+    const items = (await idbAll<OutboxItem>("outbox")).sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
+    const sent = await drain(items, async (item) => {
+      if (!await post(item)) return false;
+      if (item.id != null) await acknowledgeRequest(item.id);
+      return true;
+    });
+    return sent.length;
+  })().finally(() => { outboxFlight = null; });
+  return outboxFlight;
 }
 
 // -- device account ------------------------------------------------------------

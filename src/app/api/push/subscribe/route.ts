@@ -1,63 +1,50 @@
 import { NextRequest, NextResponse } from "next/server";
-
 import { dbConfigured, supabase } from "@/lib/db";
-
-// A push subscription is a browser endpoint, not a person. guardianId is our own
-// free-form label so one device can carry several guardians' endpoints; it is
-// deliberately not a foreign key to any identity table, because linking a push
-// endpoint to a verified identity is the exact failure mode PLAN.md §5 argues
-// against. See also: no SELECT policy on this table, so the browser can never
-// enumerate endpoints.
-
-const isEndpoint = (v: unknown): v is string =>
-  typeof v === "string" && v.startsWith("https://") && v.length < 2048;
-const isKey = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9_-]{20,120}$/.test(v);
+import { isPushEndpoint, isPushKey, isSessionId } from "@/lib/push-contract";
 
 export async function POST(req: NextRequest) {
   if (!dbConfigured()) return NextResponse.json({ error: "db not configured" }, { status: 503 });
   const body = await req.json().catch(() => null);
-  if (!isEndpoint(body?.endpoint) || !isKey(body?.p256dh) || !isKey(body?.auth)) {
-    return NextResponse.json({ error: "endpoint, p256dh and auth required" }, { status: 400 });
+  if (!isPushEndpoint(body?.endpoint) || !isPushKey(body?.p256dh, "p256dh") ||
+      !isPushKey(body?.auth, "auth") || !isSessionId(body?.sessionId)) {
+    return NextResponse.json({ error: "valid endpoint, p256dh, auth and sessionId required" }, { status: 400 });
   }
-  const guardianId =
-    typeof body?.guardianId === "string" ? body.guardianId.slice(0, 64) : null;
-
-  // re-subscribing on the same browser must not create duplicates
-  const { error } = await supabase()!
-    .from("push_subscriptions")
-    .upsert(
-      { endpoint: body.endpoint, p256dh: body.p256dh, auth: body.auth, guardian_id: guardianId },
-      { onConflict: "endpoint" },
-    );
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const sb = supabase()!;
+  const session = await sb.from("guardian_sessions").select("id").eq("id", body.sessionId).maybeSingle();
+  if (session.error) return NextResponse.json({ error: "Session lookup failed" }, { status: 500 });
+  if (!session.data) return NextResponse.json({ error: "Session not found" }, { status: 404 });
+  // The RPC stores endpoint and association in one transaction.
+  const { error } = await sb.rpc("subscribe_push_session", {
+    p_endpoint: body.endpoint, p_p256dh: body.p256dh, p_auth: body.auth, p_session_id: body.sessionId,
+  });
+  if (error) return NextResponse.json({ error: "Could not store session subscription" }, { status: 500 });
   return NextResponse.json({ ok: true });
+}
+
+function parameters(req: NextRequest) {
+  const endpoint = req.nextUrl.searchParams.get("endpoint");
+  const sessionId = req.nextUrl.searchParams.get("sessionId");
+  return isPushEndpoint(endpoint) && isSessionId(sessionId) ? { endpoint, sessionId } : null;
+}
+
+export async function GET(req: NextRequest) {
+  if (!dbConfigured()) return NextResponse.json({ error: "db not configured" }, { status: 503 });
+  const input = parameters(req);
+  if (!input) return NextResponse.json({ error: "valid endpoint and sessionId required" }, { status: 400 });
+  const { data, error } = await supabase()!.from("push_subscription_sessions")
+    .select("session_id,push_subscriptions!inner(endpoint)")
+    .eq("session_id", input.sessionId).eq("push_subscriptions.endpoint", input.endpoint).maybeSingle();
+  if (error) return NextResponse.json({ error: "Subscription lookup failed" }, { status: 500 });
+  return NextResponse.json({ armed: !!data }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function DELETE(req: NextRequest) {
   if (!dbConfigured()) return NextResponse.json({ error: "db not configured" }, { status: 503 });
-  const endpoint = req.nextUrl.searchParams.get("endpoint");
-  if (!isEndpoint(endpoint)) {
-    return NextResponse.json({ error: "endpoint required" }, { status: 400 });
-  }
-  await supabase()!.from("push_subscriptions").delete().eq("endpoint", endpoint);
+  const input = parameters(req);
+  if (!input) return NextResponse.json({ error: "valid endpoint and sessionId required" }, { status: 400 });
+  const { error } = await supabase()!.rpc("unsubscribe_push_session", {
+    p_endpoint: input.endpoint, p_session_id: input.sessionId,
+  });
+  if (error) return NextResponse.json({ error: "Could not remove session subscription" }, { status: 500 });
   return NextResponse.json({ ok: true });
-}
-
-// Lets the guardian page show "armed" without the browser needing read access
-// to the table: true when at least one endpoint is registered.
-export async function GET() {
-  if (!dbConfigured()) return NextResponse.json({ error: "db not configured" }, { status: 503 });
-  const { count, error } = await supabase()!
-    .from("push_subscriptions")
-    .select("id", { count: "exact", head: true });
-  // NOTE: with head:true, supabase-js swallows a missing-table 404 and hands back
-  // { error: null, count: null }. So `count === null` IS the failure signal —
-  // without it, "table was never created" reports as a reassuring "0 endpoints".
-  if (error || count === null) {
-    return NextResponse.json(
-      { error: error?.message ?? "push_subscriptions table missing — run the S.6 block in schema.sql" },
-      { status: 500 },
-    );
-  }
-  return NextResponse.json({ count });
 }
