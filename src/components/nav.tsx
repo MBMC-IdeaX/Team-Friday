@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import InstallButton from "@/components/install-button";
+
 import { useUser } from "@/lib/user";
 
 // One nav for every screen, so no page is a dead end you cannot navigate out of.
@@ -18,6 +20,7 @@ const TABS = [
 export function TopBar() {
   const { user, loading } = useUser();
   return (
+    <>
     <header className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
       <Link href="/" className="-my-1 flex items-center gap-2 rounded-lg px-1 py-2">
         <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden>
@@ -41,6 +44,8 @@ export function TopBar() {
         </Link>
       </div>
     </header>
+    <InstallButton />
+    </>
   );
 }
 
