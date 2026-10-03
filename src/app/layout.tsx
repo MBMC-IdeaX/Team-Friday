@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import Bootstrap from "@/components/bootstrap";
+import Shell from "@/components/shell";
 import "./globals.css";
 
 const inter = Inter({
@@ -31,7 +32,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`dark ${inter.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
-        {children}
+        <Shell>{children}</Shell>
         <Bootstrap />
       </body>
     </html>

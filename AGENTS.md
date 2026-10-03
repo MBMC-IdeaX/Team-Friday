@@ -35,8 +35,22 @@ These are the product, not implementation details. Do not "improve" them away.
    pin. Tap SOS again, or "I'm safe", to stand down. Voice ("help me" / "bachao")
    arms as a hands-free alternative.
 5. Report an unsafe spot anonymously → score changes for everyone.
-6. Authorities open /dashboard → same tables, hotspot heatmap, and what community
+6. Need help? → /help has verified police/ambulance/women's helplines plus live
+   nearby facilities from OpenStreetMap. /rights explains what she is legally
+   entitled to in Nepal, with the law cited for each claim.
+7. Authorities open /dashboard → same tables, hotspot heatmap, and what community
    reports changed.
+
+# Navigation
+Bottom bar on every screen except /sos: Map · Guardians · Rights · Help.
+`src/components/shell.tsx` owns it, so no page is a dead end you cannot leave.
+
+# Content with consequences
+Phone numbers and legal claims are never written from memory. Every entry in
+`src/lib/emergency.ts` names its source (nepalpolice.gov.np, nwchelpline.gov.np)
+and every right on /rights cites its statute and section. Nearby facilities come
+live from OpenStreetMap rather than a hardcoded list, precisely so we never invent
+a number someone might dial in a crisis. If you add a number, add its source.
 
 # Checks
 `npm test` (no framework) · `npm run check` + `npm run check:rec` (need a running

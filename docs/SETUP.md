@@ -116,7 +116,22 @@ The call button, the SMS and the local session write do not depend on any of tho
 prompts succeeding — a denied microphone costs you the recording, not the alert.
 Recording and location failures are reported on the SOS screen rather than hidden.
 
-## 8. Checks
+## 8. External services (no accounts needed)
+
+Two third-party APIs are called at runtime. Both are free and keyless, and both
+degrade to a stated fallback rather than a broken screen.
+
+| Service | Used for | If it fails |
+|---|---|---|
+| OpenStreetMap **Nominatim** | place search on the map | shows "Place search is unavailable — you can still tap the map" |
+| OpenStreetMap **Overpass** | nearby police/hospitals on `/help` | shows the error; national hotlines above it still work |
+
+Both are reached **client-side** so the browser sends its own User-Agent, which
+Overpass requires — a server-side proxy would need to set one. Nominatim's usage
+policy asks for at most one request per second, so search is debounced at 600ms
+and needs 3 characters.
+
+## 9. Checks
 
 ```bash
 npm test          # node:test, no framework — drain ordering

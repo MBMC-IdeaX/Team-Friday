@@ -7,9 +7,9 @@
 // (no Safari, no Firefox) — an `online` listener is shorter and cross-browser.
 
 const DB_NAME = "herguardian";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
-export const STORES = ["outbox", "guardians", "recordings"] as const;
+export const STORES = ["outbox", "guardians", "recordings", "device"] as const;
 export type Store = (typeof STORES)[number];
 
 export type OutboxItem = { id?: number; url: string; body: string; createdAt: number };
@@ -18,6 +18,10 @@ export type Guardian = { id?: number; name: string; phone: string };
 // the page, and a single 20-minute blob that never got written is worth nothing —
 // a 10s chunk written before the suspension is evidence that survives.
 export type Recording = { id?: number; sessionId: string; blob: Blob; createdAt: number };
+// The account this device remembers. Stored here rather than in localStorage
+// because IndexedDB is the browser's durable, structured store — the thing you
+// would use SQLite for in a native app.
+export type DeviceAccount = { id?: number; email: string; signedInAt: number };
 
 let dbp: Promise<IDBDatabase> | null = null;
 
@@ -107,6 +111,21 @@ export async function flushOutbox(): Promise<number> {
   await Promise.all(sent.flatMap((i) => (i.id == null ? [] : [idbDel("outbox", i.id)])));
   return sent.length;
 }
+
+// -- device account ------------------------------------------------------------
+
+export const saveDeviceAccount = (email: string) =>
+  idbPut("device", { email, signedInAt: Date.now() } satisfies DeviceAccount);
+
+export const getDeviceAccount = async (): Promise<DeviceAccount | null> => {
+  const all = await idbAll<DeviceAccount>("device");
+  return all.sort((a, b) => a.signedInAt - b.signedInAt).at(-1) ?? null;
+};
+
+export const clearDeviceAccount = async () => {
+  const all = await idbAll<DeviceAccount>("device");
+  await Promise.all(all.flatMap((a) => (a.id == null ? [] : [idbDel("device", a.id)])));
+};
 
 // -- recordings (S.7) ---------------------------------------------------------
 

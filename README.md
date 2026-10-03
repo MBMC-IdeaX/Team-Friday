@@ -28,11 +28,21 @@ withholds geolocation and the service worker will not register.
 | **Prevent** | OSRM alternatives, each scored by averaging cell safety along its geometry — **shortest vs safest** side by side |
 | **Respond** | One-tap SOS that persists locally *before* any network call, dials your primary contact, records audio in chunks, and streams a live pin to the guardian. SOS is a **toggle**; "I'm safe" resolves the session |
 | **Improve** | Anonymous reports with an optional photo, which bump the nearest cells and decay over 7 days at read time |
+| **Help** | `/help` — verified police/ambulance/women's-helpline numbers, plus **live** nearby facilities from OpenStreetMap |
+| **Rights** | `/rights` — what a woman is legally entitled to in Nepal, each claim citing its statute and section |
 | **Govern** | `/dashboard` — hotspot heatmap, top-10 riskiest cells, weekly trend, and what community reports changed. Reads the same tables routing reads |
 
 Plus: offline app shell and cached safety grid, Web Push (the only channel that
-reaches a guardian whose browser is closed), and an optional magic-link sign-in
-that **never gates SOS**.
+reaches a guardian whose browser is closed), place search, on-device guardian
+management, and a one-time optional sign-in that **never gates SOS**.
+
+## Content with consequences
+
+Phone numbers and legal claims are never written from memory. Every hotline in
+`src/lib/emergency.ts` names the official source it was checked against, and every
+right on `/rights` cites its statute and section. Nearby facilities are queried
+**live from OpenStreetMap** rather than hardcoded — precisely so we never ship a
+plausible-looking number that someone might dial in a crisis.
 
 ## Design decisions worth knowing
 

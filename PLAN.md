@@ -267,6 +267,17 @@ error *and* kept saying "Loading…"; and if IndexedDB was unavailable (Safari
 private mode) `queueRequest` rejected, leaving the whole SOS screen inert. All
 three now say what is wrong and offer a way out.
 
+**Post-plan additions.** Bottom navigation (`components/shell.tsx`); `/guardians`
+for on-device guardian management; `/rights` (Nepal women's legal rights, every
+claim citing its statute); `/help` (verified helplines + **live** nearby facilities
+from OpenStreetMap via Overpass); place search on the map via Nominatim.
+
+**Content rule.** Nothing with a phone number or a legal claim is written from
+memory. `src/lib/emergency.ts` records the source for every hotline, `/rights`
+cites statute and section for every right, and nearby facilities are queried live
+rather than hardcoded — because a plausible-looking wrong number in a safety app
+is worse than no number at all.
+
 **Progress:** S.0–S.4, S.6, S.7, S.8 **shipped**. Phase 1, 2 and 3 code complete. DB is live and seeded (609 cells / 338 incidents / 40 reports; `/api/cells` reports `source: "db"`). S.5 needs no work — the S.1 SW cache already serves the grid offline. Remaining: nothing in code. S.8 shipped last because Web Speech is cloud-based and therefore offline-dead by nature.
 
 **SOS is a toggle, not a one-shot.** Tapping SOS on the home screen starts a session; tapping again stops the alert. A second tap **reuses** the live session and just updates the pin, so a panicking double-tap cannot re-alert every guardian — and nothing is ever *blocked*, because a rate limit that suppressed a second tap could kill the one call that matters. The big red button on the SOS screen dials the **primary guardian** from the on-device list (`tel:`), falling back to `EMERGENCY` when none is configured. "I'm safe" exists on both `/sos` and the home screen.

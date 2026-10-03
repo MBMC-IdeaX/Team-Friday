@@ -35,6 +35,7 @@ type RoutesRes = {
 
 type Picked = { lat: number; lng: number };
 
+import PlaceSearch from "@/components/place-search";
 import ReportSheet from "@/components/report-sheet";
 import { startVoiceSos, voiceSupported } from "@/lib/voice";
 import { activeSessionId, clearActiveSession } from "@/lib/offline";
@@ -85,6 +86,7 @@ export default function MapView() {
   const markerRef = useRef<Marker | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [picked, setPicked] = useState<Picked | null>(null);
+  const [origin, setOrigin] = useState<Picked | null>(null);
   const [userPos, setUserPos] = useState<[number, number] | null>(null);
   const [data, setData] = useState<RoutesRes | null>(null);
   const [destScore, setDestScore] = useState<number | null>(null);
@@ -229,8 +231,9 @@ export default function MapView() {
   useEffect(() => {
     if (!picked) return;
     let cancelled = false;
-    const origin = userPos ?? CENTER;
-    const q = `from=${origin[1]},${origin[0]}&to=${picked.lat},${picked.lng}`;
+    const from =
+      origin ?? (userPos ? { lat: userPos[1], lng: userPos[0] } : null) ?? { lat: CENTER[1], lng: CENTER[0] };
+    const q = `from=${from.lat},${from.lng}&to=${picked.lat},${picked.lng}`;
     Promise.all([
       fetch(`/api/score?lat=${picked.lat}&lng=${picked.lng}`).then((r) => r.json()),
       fetch(`/api/routes?${q}`).then((r) => r.json().then((j) => ({ ok: r.ok, j }))),
@@ -246,7 +249,7 @@ export default function MapView() {
     return () => {
       cancelled = true;
     };
-  }, [picked, userPos]);
+  }, [picked, userPos, origin]);
 
   // draw destination marker + route lines
   useEffect(() => {
@@ -308,6 +311,24 @@ export default function MapView() {
       </header>
 
       <div className="absolute bottom-3 left-3 z-10 w-[min(24rem,calc(100vw-1.5rem))] space-y-2">
+        <div className="space-y-1.5">
+          <PlaceSearch
+            placeholder="Go to (e.g. Ring Road, Thamel)"
+            onPick={(r) => setPicked({ lat: r.lat, lng: r.lng })}
+          />
+          <PlaceSearch
+            placeholder="Start from (defaults to you)"
+            onPick={(r) => setOrigin({ lat: r.lat, lng: r.lng })}
+          />
+          {origin && (
+            <button
+              onClick={() => setOrigin(null)}
+              className="w-full rounded-lg bg-black/70 px-2 py-1.5 text-[11px] text-muted-foreground"
+            >
+              Using a fixed start point · tap to go back to your location
+            </button>
+          )}
+        </div>
         <button
           onClick={() => (activeSession ? endSession() : router.push("/sos"))}
           className={`w-full rounded-xl py-4 text-center text-lg font-bold tracking-wide text-white ${
@@ -360,7 +381,7 @@ export default function MapView() {
         )}
         {!picked && (
           <div className="rounded-xl bg-black/70 px-4 py-3 text-sm backdrop-blur">
-            Tap the map to set your destination.
+            Search above, or tap the map to set your destination.
           </div>
         )}
         {error && (
