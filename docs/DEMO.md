@@ -71,8 +71,9 @@ Switch to airplane mode, reopen the app.
 
 > "No signal. The shell and the risk colouring still load — the whole safety
 > grid is 15 KB over the wire and 70 KB on disk, so caching it costs nothing.
-> The basemap goes grey, because we deliberately
-> don't cache map tiles. The overlay is the product."
+> The tiles I already panned over are still here too: we cache only what you
+> actually looked at, up to 200, never a prefetch. Anything new goes grey —
+> the overlay is the product."
 
 ## 1:55 — Help & rights (fast, only if time)
 
@@ -120,7 +121,8 @@ Volunteering a limitation reads as competence; being caught on one doesn't.
 | Limit | Why |
 |---|---|
 | Crime data is seeded | Public data is NCRB-level granularity, not street-level. The *pipeline* is real, the weights are defensible, the data is marked `// FAKE`. |
-| No offline routing | OSRM is a network call. Offline routing needs a ~100MB road graph. We say so. |
+| No offline routing | OSRM is a network call. Offline routing needs a ~100MB road graph. A journey you already ran replays offline for 24h; a *new* destination needs the network. We say so. |
+| Only viewed tiles are cached | No tile prefetch — the basemap survives only where you have already panned. Intentional, and it keeps the app a few hundred KB rather than a map download. |
 | Voice trigger dies offline | Web Speech recognition is cloud-based. `🎙 Voice SOS` arms it, but it's the one trigger that stops working in a tunnel — hence it is last in the cut order, and the red button remains the floor. |
 | Nothing fires from a locked screen | That's native-only. `tel:` is the floor, and it's why the red button is a `tel:` link and not just an API call. |
 | Guardian must open the app for live tracking | Push fixes this, but only once installed and granted. |

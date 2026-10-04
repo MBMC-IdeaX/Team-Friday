@@ -48,16 +48,31 @@ shared verbatim by the server routes and the client. Consequences worth knowing:
 | Offline | `public/sw.js` + `lib/offline.ts` | `bootstrap.tsx` |
 | Audio recording | `api/recording` | `sos/page.tsx`, `lib/offline.ts` |
 | Push alerts | `lib/push-server.ts`, `api/push/*` | `lib/push.ts`, `guard-tracker.tsx` |
-| Voice trigger | — | `lib/voice.ts` |
 | Navigation | — | route-group layouts `(map)`/`(app)`/`(bare)` → `nav.tsx` |
 | Account | Supabase Auth | `lib/user.ts`, `app/login/page.tsx` |
 | Guardians (on-device) | — | `app/guardians/page.tsx`, `lib/offline.ts` |
 | Rights content | — | `app/(app)/rights/page.tsx` |
 | Emergency data | — | `lib/emergency.ts`, `app/help/page.tsx` |
 | Place search | — | `components/place-search.tsx` (Nominatim) |
-| Audio recording | `api/recording` | `sos/page.tsx`, `lib/offline.ts` |
-| Push alerts | `lib/push-server.ts`, `api/push/*` | `lib/push.ts`, `guard-tracker.tsx` |
+| PWA install | — | `components/install-button.tsx` (`nav.tsx`) |
 | Voice trigger | — | `lib/voice.ts` (client only) |
+
+## What the service worker keeps
+
+Five named caches plus the IndexedDB outbox, each with a stated ceiling rather
+than a general "cache everything":
+
+| Cache | Contents | Ceiling |
+|---|---|---|
+| `hg-v1-shell-pages-v4` | the 6 public pages + their chunks, fonts, MapLibre worker pair | prepared at install, never re-downloaded |
+| `hg-v1-data` | `/api/cells` | a `source:"fake"` refresh never overwrites a saved `"db"` grid |
+| `hg-v1-viewed-tiles` (+ `-metadata`) | OSM PNG tiles you actually panned over | 200 tiles, `Cache-Control`/`must-revalidate` honoured, **no prefetch** |
+| `hg-v1-map-data` | safety grid, route alternatives, last journey | journeys expire honestly at 24h |
+| IndexedDB (`lib/offline.ts`) | outbox, guardians, recording chunks | lives outside the SW; a report filed underground is a report that exists |
+
+Unknown and dynamic routes are never answered with another page's HTML, and
+session links are never cached — `test/offline-map-rendering.test.mjs` holds that
+line.
 
 ## The SOS design, in one paragraph
 

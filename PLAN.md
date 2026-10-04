@@ -78,7 +78,7 @@ flowchart LR
 
 **Team split (4):** frontend-map · backend/Supabase · scoring+data seed · dashboard+pitch. One agent session per person, one branch each, commit after every working step.
 
-**Cut list (don't build):** ML training, native app, real SMS provider (use `tel:`/`sms:` links), full auth (magic link only), background SOS when tab closed (state the PWA limitation honestly), offline routing (needs a road graph), offline voice trigger (Web Speech is cloud-based). See §5.
+**Cut list (don't build):** ML training, native app, real SMS provider (use `tel:`/`sms:` links), full auth (magic link only), background SOS when tab closed (state the PWA limitation honestly), offline routing for a *new* destination (needs a road graph — journeys already generated replay from cache for 24h), offline voice trigger (Web Speech is cloud-based). See §5.
 
 ---
 
@@ -231,7 +231,9 @@ Guardian phone numbers are stored **on the device**, so the SOS screen's Message
 | Last known position | yes | kept locally regardless |
 | Anonymous report | yes, queued | a report filed underground is a report that exists |
 | Auto-record | record yes, upload queued | MediaRecorder is local; blob flushes on reconnect |
-| **Turn-by-turn safest route** | **no** | OSRM is a network call; offline routing needs a road graph (~100MB+) |
+| Map basemap | **partly** | a 200-tile LRU of tiles you already panned over; no prefetch, so anywhere you have not been greys out |
+| Reopen a journey you already generated | yes, 24h | the route response is cached with its endpoints; only *new* destinations need OSRM |
+| **Turn-by-turn safest route (new destination)** | **no** | OSRM is a network call; offline routing needs a road graph (~100MB+) |
 | **Voice trigger** | **no** | Web Speech recognition is cloud-based in Chrome |
 
 **Ceilings we state out loud:** nothing fires from a locked screen or a fully killed app — only a native build fixes that, and `tel:` is the floor. A recording is whatever reached IndexedDB before the OS froze the page.
@@ -270,7 +272,10 @@ three now say what is wrong and offer a way out.
 **Post-plan additions.** Bottom navigation (route-group layouts); `/guardians`
 for on-device guardian management; `/rights` (Nepal women's legal rights, every
 claim citing its statute); `/help` (verified helplines + **live** nearby facilities
-from OpenStreetMap via Overpass); place search on the map via Nominatim.
+from OpenStreetMap via Overpass); place search on the map via Nominatim; a PWA
+install control in the bottom bar; and the offline-map pass — viewed-tile cache,
+saved journeys replaying offline for 24h, and truthful recovery when neither
+exists.
 
 **Content rule.** Nothing with a phone number or a legal claim is written from
 memory. `src/lib/emergency.ts` records the source for every hotline, `/rights`
@@ -282,6 +287,6 @@ is worse than no number at all.
 
 **SOS is a toggle, not a one-shot.** Tapping SOS on the home screen starts a session; tapping again stops the alert. A second tap **reuses** the live session and just updates the pin, so a panicking double-tap cannot re-alert every guardian — and nothing is ever *blocked*, because a rate limit that suppressed a second tap could kill the one call that matters. The big red button on the SOS screen dials the **primary guardian** from the on-device list (`tel:`), falling back to `EMERGENCY` when none is configured. "I'm safe" exists on both `/sos` and the home screen.
 
-**Checks that exist:** `npm test` (`node --test`, drain ordering) · `npm run check` (`/api/sos` 12 assertions · `/api/report` 7 · anon→anon broadcast) · `npm run reset:demo` (strip check/probe rows back out). Offline behaviour needs a real device; it has not been verified on hardware yet.
+**Checks that exist:** `npm test` (101 `node --test` cases — offline map rendering, offline navigation, mobile map, stabilization, SOS lifecycle, recording, push, outbox drain ordering, voice phrase matcher) · `npm run check` (`/api/sos` 12 assertions · `/api/report` 7 · anon→anon broadcast) · `npm run check:rec` (`/api/recording` 7) · `npm run reset:demo` (strip check/probe rows back out). Offline behaviour needs a real device; it has not been verified on hardware yet.
 
 **Phone testing:** serve a **production** build — `npm run build && npm start` — and open it over **HTTPS**. A LAN IP on plain http is not a secure context: Chrome refuses geolocation outright, `crypto.randomUUID` is undefined (this is what killed the SOS page, now fixed via `newId()`), and the service worker never registers. `cloudflared tunnel --url http://localhost:3000` gives a real https URL. Details in `docs/SETUP.md`.

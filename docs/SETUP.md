@@ -93,11 +93,12 @@ Then `npm run build && npm start`, and open the tunnel URL on the phone. Note
 that `npm run dev` is a poor phone-test target: the service worker is registered in
 production only, and dev-mode HMR churn makes the caching paths lie.
 
-To test the offline path: load the app once over HTTPS, switch the phone to
-airplane mode, then reopen. The shell and the safety grid should still render.
-**Basemap tiles will not** — OSM tiles are deliberately not cached, so the map
-greys out and the risk overlay remains. That is the intended trade, recorded in
-`PLAN.md` §5.
+To test the offline path: load the app once over HTTPS, pan the map over where
+you intend to demo, then switch the phone to airplane mode and reopen. The shell,
+the safety grid and **the tiles you already panned over** should still render —
+the service worker keeps a 200-tile LRU of viewed OSM tiles and never prefetches.
+Anywhere you have not been greys out, and the risk overlay stays on top. That is
+the intended trade, recorded in `PLAN.md` §5.
 
 `EMERGENCY` in `src/app/(bare)/sos/page.tsx` is the fallback the red button dials when no
 guardian is configured. Once you add a guardian on the SOS screen, the button dials
@@ -134,7 +135,8 @@ and needs 3 characters.
 ## 9. Checks
 
 ```bash
-npm test          # node:test, no framework — drain ordering
+npm test          # 101 tests, node:test, no framework — offline maps, SOS
+                  # lifecycle, recording, push, outbox drain ordering, voice
 npm run lint
 npm run check     # /api/sos + /api/report + Realtime broadcast (needs a running server)
 npm run check:rec  # /api/recording upload + media_paths
@@ -143,8 +145,8 @@ npm run reset:demo  # strip check/probe rows back out of the DB
 
 `npm run check` writes to the real database, so run `npm run reset:demo` before a
 demo. Verified in a production build: `/api/sos` (12 assertions), `/api/report`
-(7, including photo upload and rejection), and an anon→anon broadcast actually
-delivering a pin.
+(7, including photo upload and rejection), `/api/recording` (7), and an anon→anon
+broadcast actually delivering a pin.
 
 ## Troubleshooting
 

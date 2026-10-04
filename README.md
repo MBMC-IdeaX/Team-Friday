@@ -8,14 +8,18 @@ The loop: **Predict → Prevent → Respond → Improve → Govern.**
 
 ## Status
 
-All 31 items in `PLAN.md` are built. Verified: 13 tests, 33 API/realtime assertions
-against the real database, production build, hydration clean on all 7 pages, no
-horizontal overflow and no tap target under 32px at 390×844 and 360×640.
+Every buildable item in `PLAN.md` is built; the leftovers are listed under *Needs
+people, not code* below. Verified: **101 unit tests**, lint clean, a green
+production build over 8 routes, and **31 API/realtime assertions** across
+`npm run check` + `npm run check:rec` against the real database (`/api/sos` 12 ·
+`/api/report` 7 · anon→anon broadcast 5 · `/api/recording` 7). Mobile audit at
+390×844 and 360×640: no horizontal overflow and no tap target under 32px.
 
 **Not yet verified — and worth saying out loud before you demo:**
 
-- Offline behaviour, two-phone live tracking and browser push are **code-verified
-  only**. No one has run them on hardware.
+- Offline maps, two-phone live tracking and browser push now have dedicated test
+  suites (`test/offline-*.test.mjs`, `mobile-map`, `stabilization`, `push`), but
+  **no one has run them on hardware**.
 - There is **no public deploy**; the app is reached over the LAN.
 
 Needs people, not code: pitch rehearsal, a backup video, a human diff review, and
@@ -47,9 +51,11 @@ withholds geolocation and the service worker will not register.
 | **Rights** | `/rights` — what a woman is legally entitled to in Nepal, each claim citing its statute and section |
 | **Govern** | `/dashboard` — hotspot heatmap, top-10 riskiest cells, weekly trend, and what community reports changed. Reads the same tables routing reads |
 
-Plus: offline app shell and cached safety grid, Web Push (the only channel that
-reaches a guardian whose browser is closed), place search, on-device guardian
-management, and a one-time optional sign-in that **never gates SOS**.
+Plus: an offline app shell, the safety grid and **the map tiles you have already
+viewed** (200-tile LRU — no prefetch), saved journeys that replay offline for 24h,
+Web Push (the only channel that reaches a guardian whose browser is closed), a
+PWA install control, place search, on-device guardian management, and a one-time
+optional sign-in that **never gates SOS**.
 
 ## Content with consequences
 
@@ -86,11 +92,15 @@ A rate limit that *suppressed* a second tap could kill the one call that matters
 - **Nothing fires from a locked screen.** Native-only. `tel:` is the floor, and
   it's why the call button is a real `tel:` link.
 - **No offline routing.** OSRM is a network call; offline routing needs a ~100MB
-  road graph. Offline still tells you which direction is safer.
+  road graph. A journey you already generated replays offline for 24h, but a
+  *new* destination needs the network. Offline still tells you which direction
+  is safer.
+- **Only viewed tiles are cached.** The basemap survives a flight only where you
+  have already panned; there is no tile prefetch, on purpose.
 - **Voice trigger needs a network.** Web Speech recognition is cloud-based, so the
   one trigger you'd want in a tunnel is the one that stops working there.
-- **Offline, two-phone tracking and browser push are code-verified only.** No one
-  has run them on hardware yet.
+- **Offline, two-phone tracking and browser push are test-covered but not
+  hardware-proven.** No one has run them on a phone yet.
 
 ## Privacy posture
 
@@ -103,10 +113,11 @@ Nothing needs it, because `/api/sos` reads with the service role.
 ## Verification
 
 ```bash
-npm test         # node:test, no framework — drain ordering + voice phrase matcher
+npm test         # 101 tests, node:test, no framework — offline maps, SOS lifecycle,
+                 # recording, push, outbox drain ordering, voice phrase matcher
 npm run lint
 npm run check    # /api/sos (12) · /api/report (7) · Realtime broadcast (needs a server)
-npm run check:rec  # /api/recording upload + media_paths
+npm run check:rec  # /api/recording upload + media_paths (7)
 npm run reset:demo  # strip check/probe rows and orphaned uploads back out
 ```
 
@@ -124,6 +135,7 @@ dependency added after the scaffold.
 | | |
 |---|---|
 | [presentation.html](presentation.html) | 12-slide animated pitch deck — open it in a browser, no build step, works with the wifi off |
+| [herguardian-deck.html](herguardian-deck.html) | 7-slide Team Friday deck — hero, problem, solution, demo video, **competitor comparison**, stack, close |
 | [docs/SUBMISSION.md](docs/SUBMISSION.md) | Copy-paste hackathon form answers, character-count verified |
 | [docs/workflow.png](docs/workflow.png) | Project workflow diagram (also svg/jpg/pdf) |
 | [docs/DEMO.md](docs/DEMO.md) | The 2-minute demo script, honest limits, and prepared Q&A |

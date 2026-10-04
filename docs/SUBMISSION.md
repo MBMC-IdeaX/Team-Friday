@@ -56,5 +56,6 @@ All within 200. The one above is the recommendation.
 | 199 *(original)* | Citizen and bSafe report crime after it happens; Safetipin publishes stale static audits. Nothing predicts risk, routes around it, or lets a woman report an unsafe spot without exposing her identity. |
 
 **Claims we cannot make yet**, so they stayed out of every field: that offline works,
-that two phones track each other, or that push is delivered. All three are code-verified
-only. If asked on stage, say so — volunteering it reads as competence.
+that two phones track each other, or that push is delivered. All three are covered by
+`node --test` suites but have never been demonstrated on hardware. If asked on stage,
+say so — volunteering it reads as competence.

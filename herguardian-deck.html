@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HerGuardian - Team Friday Pitch Deck</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #050B14;
+            --card-surface: rgba(16, 24, 43, 0.6);
+            --card-border: rgba(45, 212, 191, 0.15);
+            --safe-green: #10B981;
+            --alert-red: #F43F5E;
+            --tech-cyan: #06B6D4;
+            --text-heading: #F8FAFC;
+            --text-body: #94A3B8;
+            --radius-lg: 24px;
+            --radius-md: 16px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-body);
+            overflow: hidden;
+            display: flex; justify-content: center; align-items: center;
+            height: 100vh;
+            background-image:
+                radial-gradient(circle at 0% 0%, rgba(6, 182, 212, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 100% 100%, rgba(244, 63, 94, 0.05) 0%, transparent 50%);
+        }
+        h1, h2, h3, h4, .font-display { font-family: 'Space Grotesk', sans-serif; color: var(--text-heading); }
+        .slider-container {
+            position: relative; width: 95vw; max-width: 1400px; height: 85vh;
+            background: rgba(10, 15, 30, 0.4);
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: var(--radius-lg);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+        }
+        .slide {
+            position: absolute; inset: 0; padding: 4rem 5.5rem;
+            opacity: 0; transform: translateY(20px) scale(0.98);
+            transition: all 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex; flex-direction: column;
+            pointer-events: none; z-index: 1;
+            overflow-y: auto; scrollbar-width: thin;
+        }
+        .slide.active { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; z-index: 2; }
+        .slide.previous { opacity: 0; transform: translateY(-20px) scale(0.98); }
+        .split-layout { display: flex; gap: 4rem; height: 100%; align-items: center; }
+        .split-content { flex: 1.2; display: flex; flex-direction: column; justify-content: center; }
+        .split-visual { flex: 0.8; height: 100%; display: flex; align-items: center; justify-content: center; position: relative; }
+        .anim-item {
+            opacity: 0; transform: translateY(20px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            transition-delay: var(--delay, 0s);
+        }
+        .slide.active .anim-item { opacity: 1; transform: translateY(0); }
+        .badge {
+            display: inline-flex; align-items: center; gap: 8px;
+            background: rgba(6, 182, 212, 0.1); color: var(--tech-cyan);
+            padding: 0.5rem 1.25rem; border-radius: 100px;
+            font-size: 0.85rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+            border: 1px solid rgba(6, 182, 212, 0.2); margin-bottom: 1.5rem; width: fit-content;
+        }
+        .gradient-title {
+            font-size: 4.5rem; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em;
+            background: linear-gradient(135deg, #FFF 0%, var(--tech-cyan) 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 1rem;
+        }
+        h2 { font-size: 3rem; font-weight: 700; margin-bottom: 1rem; letter-spacing: -0.02em; }
+        .subtitle { font-size: 1.2rem; line-height: 1.6; font-weight: 400; margin-bottom: 1.5rem; color: var(--text-body); max-width: 95%; }
+        .center-head { text-align: center; max-width: 800px; margin: 0 auto 1.5rem; display: flex; flex-direction: column; align-items: center; }
+        .center-head .subtitle { margin-left: auto; margin-right: auto; }
+
+        .radar-box { position: relative; width: 350px; height: 350px; display: flex; justify-content: center; align-items: center; }
+        .radar-circle { position: absolute; border-radius: 50%; border: 1px solid rgba(16, 185, 129, 0.3); animation: pulse 4s linear infinite; opacity: 0; }
+        .radar-circle:nth-child(1) { width: 100px; height: 100px; animation-delay: 0s; }
+        .radar-circle:nth-child(2) { width: 200px; height: 200px; animation-delay: 1.33s; }
+        .radar-circle:nth-child(3) { width: 300px; height: 300px; animation-delay: 2.66s; }
+        .radar-core { width: 20px; height: 20px; background: var(--safe-green); border-radius: 50%; box-shadow: 0 0 20px var(--safe-green); z-index: 10; }
+        @keyframes pulse {
+            0% { transform: scale(0.5); opacity: 0; }
+            50% { opacity: 1; }
+            100% { transform: scale(1.5); opacity: 0; border-color: rgba(16, 185, 129, 0); }
+        }
+
+        .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; width: 100%; }
+        .info-card {
+            background: var(--card-surface); border: 1px solid var(--card-border);
+            padding: 1.75rem; border-radius: var(--radius-md); transition: all 0.3s ease;
+            position: relative; overflow: hidden;
+        }
+        .info-card:hover { transform: translateY(-5px); border-color: var(--tech-cyan); background: rgba(30, 41, 59, 0.8); }
+        .card-icon-alert { color: var(--alert-red); margin-bottom: 1rem; }
+        .info-card h4 { font-size: 1.3rem; margin-bottom: 0.75rem; color: var(--text-heading); }
+        .info-card p { font-size: 0.95rem; line-height: 1.6; color: var(--text-body); }
+
+        .disclaimer {
+            margin-top: 1.5rem; padding: 1rem 1.5rem; border-radius: var(--radius-md);
+            background: rgba(6, 182, 212, 0.06); border: 1px solid rgba(6, 182, 212, 0.25);
+            font-size: 0.95rem; line-height: 1.6; color: var(--text-body);
+        }
+        .disclaimer strong { color: var(--text-heading); }
+
+        .video-box {
+            width: 100%; background: #050B14; border-radius: var(--radius-lg);
+            border: 1px solid var(--card-border); overflow: hidden;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+        }
+        .video-box video { display: block; width: 100%; max-height: 60vh; background: #000; }
+
+        .compare-table { display: flex; flex-direction: column; gap: 0.45rem; width: 100%; }
+        .compare-row { display: grid; grid-template-columns: 1.5fr repeat(4, 1fr); gap: 0.45rem; }
+        .compare-cell {
+            background: var(--card-surface); border: 1px solid var(--card-border);
+            border-radius: 12px; padding: 0.55rem 0.5rem; text-align: center;
+            font-size: 0.88rem; font-weight: 600; color: var(--text-heading);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .compare-cell.label { justify-content: flex-start; text-align: left; }
+        .compare-cell.head {
+            background: transparent; border-color: transparent; color: var(--text-body);
+            font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700;
+            align-items: flex-end; min-height: 30px; line-height: 1.3;
+        }
+        .compare-cell.head.label { justify-content: flex-start; }
+        .mark-yes { color: var(--safe-green); font-size: 1.15rem; line-height: 1; }
+        .mark-no { color: rgba(244, 63, 94, 0.65); font-size: 1.05rem; line-height: 1; font-weight: 500; }
+        .mark-part { color: var(--text-body); font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+        .compare-row.ours .compare-cell { background: rgba(6, 182, 212, 0.1); border-color: rgba(6, 182, 212, 0.5); box-shadow: 0 0 24px rgba(6, 182, 212, 0.12); }
+        .compare-row.ours .label { color: var(--tech-cyan); font-weight: 800; }
+
+        .team-box { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+        .member-chip { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 0.4rem 1rem; border-radius: 100px; font-size: 0.85rem; color: var(--text-heading); }
+
+        .controls { position: absolute; bottom: 2rem; right: 3.5rem; display: flex; align-items: center; gap: 1rem; z-index: 20; }
+        .slide-counter { font-size: 0.95rem; font-weight: 700; color: var(--text-heading); padding: 0 1rem; font-family: 'Space Grotesk', sans-serif; }
+        button {
+            background: rgba(255,255,255,0.05); color: var(--text-heading); border: 1px solid rgba(255,255,255,0.1);
+            padding: 0.6rem 1.2rem; font-size: 0.9rem; font-weight: 600; border-radius: 100px; cursor: pointer; transition: all 0.2s ease;
+        }
+        button:hover:not(:disabled) { background: var(--tech-cyan); border-color: var(--tech-cyan); color: #000; }
+        button:disabled { opacity: 0.3; cursor: not-allowed; }
+        .progress-bar { position: absolute; top: 0; left: 0; height: 4px; background: var(--tech-cyan); transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1); z-index: 30; box-shadow: 0 0 15px var(--tech-cyan); }
+        @keyframes barGrow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+    </style>
+</head>
+<body>
+
+    <div class="slider-container">
+        <div class="progress-bar" id="progressBar"></div>
+
+        <!-- Slide 1: Hero -->
+        <div class="slide active">
+            <div class="split-layout">
+                <div class="split-content">
+                    <span class="badge anim-item" style="--delay: 0.1s">MBMC IdeaX 2026</span>
+                    <h1 class="gradient-title anim-item" style="--delay: 0.2s">HerGuardian</h1>
+                    <p class="subtitle anim-item" style="--delay: 0.3s">Nepal-focused route comparison, guardian support and emergency response.</p>
+                    <p class="anim-item" style="--delay: 0.35s; font-size: 1.1em; color: var(--text-body);">
+                        A prototype that helps users <strong style="color: white">compare relative risk</strong> between routes before they travel.
+                    </p>
+                    <div class="anim-item" style="--delay: 0.4s; margin-top: 2rem;">
+                        <span style="font-size: 0.8rem; text-transform: uppercase; font-weight: 700; color: var(--text-body); display: block;">Team Friday</span>
+                        <div class="team-box">
+                            <span class="member-chip">Karan Regmi</span>
+                            <span class="member-chip">Neeru Thapa</span>
+                            <span class="member-chip">Samikshya Ranabhat</span>
+                            <span class="member-chip">Upesh Bhujel</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="split-visual anim-item" style="--delay: 0.3s">
+                    <div class="radar-box">
+                        <div class="radar-circle"></div>
+                        <div class="radar-circle"></div>
+                        <div class="radar-circle"></div>
+                        <div class="radar-core"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 2: The Problem -->
+        <div class="slide">
+            <div class="center-head">
+                <span class="badge anim-item" style="--delay: 0.1s">The Problem</span>
+                <h2 class="anim-item" style="--delay: 0.2s">Safety Tools Leave Gaps</h2>
+                <p class="subtitle anim-item" style="--delay: 0.3s">Existing apps help in many ways. The gap we target is Nepal-focused route comparison combined with guardian support.</p>
+            </div>
+
+            <div class="anim-item" style="--delay: 0.35s; display: flex; gap: 1.5rem; justify-content: center; margin-bottom: 1.5rem;">
+                <div style="background: rgba(244, 63, 94, 0.05); border: 1px solid rgba(244, 63, 94, 0.2); padding: 1rem 1.5rem; border-radius: var(--radius-md); display: flex; align-items: center; gap: 1.5rem; width: 45%;">
+                    <div style="display: flex; gap: 6px; align-items: flex-end; height: 50px;">
+                        <div style="width: 12px; height: 30%; background: var(--alert-red); border-radius: 2px; opacity: 0.3; transform-origin: bottom; animation: barGrow 1s ease-out forwards; animation-delay: 0.5s;"></div>
+                        <div style="width: 12px; height: 50%; background: var(--alert-red); border-radius: 2px; opacity: 0.5; transform-origin: bottom; animation: barGrow 1s ease-out forwards; animation-delay: 0.6s;"></div>
+                        <div style="width: 12px; height: 40%; background: var(--alert-red); border-radius: 2px; opacity: 0.4; transform-origin: bottom; animation: barGrow 1s ease-out forwards; animation-delay: 0.7s;"></div>
+                        <div style="width: 12px; height: 70%; background: var(--alert-red); border-radius: 2px; opacity: 0.7; transform-origin: bottom; animation: barGrow 1s ease-out forwards; animation-delay: 0.8s;"></div>
+                        <div style="width: 12px; height: 100%; background: var(--alert-red); border-radius: 2px; box-shadow: 0 0 10px rgba(244, 63, 94, 0.5); transform-origin: bottom; animation: barGrow 1s ease-out forwards; animation-delay: 0.9s;"></div>
+                    </div>
+                    <div style="text-align: left;">
+                        <div style="color: var(--alert-red); font-weight: 700; font-size: 1.8rem; font-family: 'Space Grotesk'; line-height: 1;">~7 Cases <span style="font-size: 1rem; color: #FFF; font-weight: 500;">/ Day</span></div>
+                        <div style="font-size: 0.85rem; color: var(--text-body); margin-top: 4px;">Avg. rape cases reported daily in Nepal (Last 5 Yrs) <span style="color: var(--alert-red); opacity: 0.7; font-size: 0.75rem;">*often underreported</span></div>
+                    </div>
+                </div>
+                <div style="background: rgba(6, 182, 212, 0.05); border: 1px solid rgba(6, 182, 212, 0.2); padding: 1rem 1.5rem; border-radius: var(--radius-md); display: flex; align-items: center; gap: 1.5rem; width: 45%;">
+                    <div style="position: relative; width: 60px; height: 60px; border-radius: 50%; background: conic-gradient(var(--tech-cyan) 0% 6.05%, rgba(255,255,255,0.05) 6.05% 100%); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 15px rgba(6, 182, 212, 0.2);">
+                        <div style="width: 48px; height: 48px; background: var(--bg-base); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                            <span style="color: var(--tech-cyan); font-size: 0.9rem; font-weight: 700; font-family: 'Space Grotesk';">6%</span>
+                        </div>
+                    </div>
+                    <div style="text-align: left;">
+                        <div style="color: var(--tech-cyan); font-weight: 700; font-size: 1.5rem; font-family: 'Space Grotesk'; line-height: 1;">397 <span style="font-size: 1rem; color: #FFF; font-weight: 500;">(6.05%)</span></div>
+                        <div style="font-size: 0.85rem; color: var(--text-body); margin-top: 4px;">Of total registered crimes are against women/children (FY 81/82)</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card-grid">
+                <div class="info-card anim-item" style="--delay: 0.4s">
+                    <div class="card-icon-alert">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    </div>
+                    <h4>Fair Look at Today's Apps</h4>
+                    <p>Apps like bSafe already offer journey monitoring and preventive features alongside SOS. We build on that idea rather than replace it.</p>
+                </div>
+                <div class="info-card anim-item" style="--delay: 0.5s">
+                    <div class="card-icon-alert" style="color: var(--tech-cyan);">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                    </div>
+                    <h4>Nepal-Focused Route Comparison</h4>
+                    <p>General maps optimise for speed. Commuters in Nepal have little way to compare the safety trade-offs between route options.</p>
+                </div>
+                <div class="info-card anim-item" style="--delay: 0.6s">
+                    <div class="card-icon-alert">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 2l20 20M8.5 8.5a5 5 0 0 1 7 0M4.93 4.93a10 10 0 0 1 14.14 0"/></svg>
+                    </div>
+                    <h4>Fragile Connections</h4>
+                    <p>Emergency flows that need a live connection can break when the network drops, so we queue SOS locally.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 3: The Solution -->
+        <div class="slide">
+            <span class="badge anim-item" style="--delay: 0.1s">Our Solution</span>
+            <h2 class="anim-item" style="--delay: 0.2s">Compare, Prevent, Respond</h2>
+            <p class="subtitle anim-item" style="--delay: 0.3s">Route comparison plus guardian support, built to help users compare relative risk before and during a journey.</p>
+
+            <div class="card-grid" style="grid-template-columns: repeat(2, 1fr);">
+                <div class="info-card anim-item" style="--delay: 0.4s">
+                    <h4 style="color: var(--tech-cyan);">Compare</h4>
+                    <p>A deterministic weighted score: crime risk (40%), community reports (25%), time of day (15%), lighting (10%), crowd activity (10%). Demo factors are synthetic.</p>
+                </div>
+                <div class="info-card anim-item" style="--delay: 0.5s">
+                    <h4 style="color: var(--safe-green);">Prevent</h4>
+                    <p>We show the shortest route and a "safest" route. Safest means the highest-scoring among the route alternatives OSRM returns, not every possible road.</p>
+                </div>
+                <div class="info-card anim-item" style="--delay: 0.6s">
+                    <h4 style="color: var(--alert-red);">Respond</h4>
+                    <p>One-tap SOS queues locally in an IndexedDB outbox if the network drops, with guardian tracking and audio recording. Video recording is not implemented yet.</p>
+                </div>
+                <div class="info-card anim-item" style="--delay: 0.7s">
+                    <h4 style="color: var(--tech-cyan);">Improve</h4>
+                    <p>Anonymous community reports feed back into the risk map, closing a community feedback loop.</p>
+                </div>
+            </div>
+
+            <div class="disclaimer anim-item" style="--delay: 0.8s">
+                <strong>Yo prototype le available safety factors ko aadhar ma route compare garcha. Yo guaranteed safety wa crime prediction hoina.</strong><br>
+                This prototype compares routes using available safety factors. It is not guaranteed safety or crime prediction.
+            </div>
+        </div>
+
+        <!-- Slide 4: Demo Video -->
+        <div class="slide">
+            <div class="split-layout">
+                <div class="split-content">
+                    <span class="badge anim-item" style="--delay: 0.1s">Interactive Prototype</span>
+                    <h2 class="anim-item" style="--delay: 0.2s">Live Demonstration</h2>
+                    <p class="subtitle anim-item" style="--delay: 0.3s">Watch HerGuardian move from route comparison to live guardian tracking.</p>
+                    <ul class="anim-item" style="--delay: 0.4s; list-style: none; display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
+                        <li style="padding: 1rem 1.5rem; background: var(--card-surface); border-radius: 12px; border: 1px solid var(--card-border);"><strong>1.</strong> Displaying location-based safety information.</li>
+                        <li style="padding: 1rem 1.5rem; background: var(--card-surface); border-radius: 12px; border: 1px solid var(--card-border);"><strong>2.</strong> Selecting a destination and comparing routes.</li>
+                        <li style="padding: 1rem 1.5rem; background: var(--card-surface); border-radius: 12px; border: 1px solid var(--card-border);"><strong>3.</strong> Triggering SOS and tracking guardian views.</li>
+                    </ul>
+                </div>
+                <div class="split-visual anim-item" style="--delay: 0.4s">
+                    <div class="video-box">
+                        <video id="demoVideo" src="demo.mp4" controls playsinline preload="metadata"></video>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 5: Comparison — existing tools vs ours -->
+        <div class="slide">
+            <div class="center-head">
+                <span class="badge anim-item" style="--delay: 0.1s">Why Ours</span>
+                <h2 class="anim-item" style="--delay: 0.2s; font-size: 2.6rem;">HerGuardian vs the Field</h2>
+                <p class="subtitle anim-item" style="--delay: 0.3s">Every one of these apps is good at something. None of them score a street before you walk it.</p>
+            </div>
+
+            <div class="compare-table">
+                <div class="compare-row anim-item" style="--delay: 0.38s">
+                    <div class="compare-cell head label">Existing tool</div>
+                    <div class="compare-cell head">Live 0–100 score</div>
+                    <div class="compare-cell head">Safest vs shortest</div>
+                    <div class="compare-cell head">Reports re-score it</div>
+                    <div class="compare-cell head">Built for Nepal</div>
+                </div>
+                <div class="compare-row anim-item" style="--delay: 0.46s">
+                    <div class="compare-cell label">Citizen / Noonlight <span style="color: var(--text-body); font-weight: 400; font-size: 0.78rem;">&nbsp;(US)</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                </div>
+                <div class="compare-row anim-item" style="--delay: 0.54s">
+                    <div class="compare-cell label">bSafe</div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                    <div class="compare-cell"><span class="mark-part">some</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                </div>
+                <div class="compare-row anim-item" style="--delay: 0.62s">
+                    <div class="compare-cell label">My Safetipin <span style="color: var(--text-body); font-weight: 400; font-size: 0.78rem;">&nbsp;(India)</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                </div>
+                <div class="compare-row anim-item" style="--delay: 0.70s">
+                    <div class="compare-cell label">Himmat <span style="color: var(--text-body); font-weight: 400; font-size: 0.78rem;">&nbsp;(Delhi Police)</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                </div>
+                <div class="compare-row anim-item" style="--delay: 0.78s">
+                    <div class="compare-cell label">Life360</div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                    <div class="compare-cell"><span class="mark-no">✗</span></div>
+                </div>
+                <div class="compare-row ours anim-item" style="--delay: 0.88s">
+                    <div class="compare-cell label">HerGuardian</div>
+                    <div class="compare-cell"><span class="mark-yes">✓</span></div>
+                    <div class="compare-cell"><span class="mark-yes">✓</span></div>
+                    <div class="compare-cell"><span class="mark-yes">✓</span></div>
+                    <div class="compare-cell"><span class="mark-yes">✓</span></div>
+                </div>
+            </div>
+
+            <div class="disclaimer anim-item" style="--delay: 1s">
+                <strong>Why ours:</strong> Citizen reacts because it happened, bSafe because it is happening, Safetipin because an audit said so last year. HerGuardian scores the street <em>before</em> you walk it, re-scores it when someone reports it, and routes you around it — citizens and authorities reading the same rows.<br>
+                <span style="font-size: 0.82rem; opacity: 0.8;">Comparators as recorded in PLAN.md §3. bSafe does ship route features; what it does not do is score them against live risk.</span>
+            </div>
+        </div>
+
+        <!-- Slide 6: Tech Stack -->
+        <div class="slide">
+            <div class="split-layout">
+                <div class="split-visual anim-item" style="--delay: 0.3s">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; width: 100%;">
+                        <div style="background: var(--card-surface); border: 1px solid var(--card-border); padding: 2rem; border-radius: var(--radius-md); text-align: center;">
+                            <h4 class="font-display">Next.js</h4>
+                            <p style="font-size: 0.85rem; color: var(--text-body); margin-top: 0.5rem;">Application Framework</p>
+                        </div>
+                        <div style="background: var(--card-surface); border: 1px solid var(--card-border); padding: 2rem; border-radius: var(--radius-md); text-align: center;">
+                            <h4 class="font-display">Supabase</h4>
+                            <p style="font-size: 0.85rem; color: var(--text-body); margin-top: 0.5rem;">PostgreSQL & Realtime</p>
+                        </div>
+                        <div style="background: var(--card-surface); border: 1px solid var(--card-border); padding: 2rem; border-radius: var(--radius-md); text-align: center;">
+                            <h4 class="font-display">MapLibre + OSRM</h4>
+                            <p style="font-size: 0.85rem; color: var(--text-body); margin-top: 0.5rem;">Map rendering & route alternatives</p>
+                        </div>
+                        <div style="background: var(--card-surface); border: 1px solid var(--card-border); padding: 2rem; border-radius: var(--radius-md); text-align: center;">
+                            <h4 class="font-display">IndexedDB</h4>
+                            <p style="font-size: 0.85rem; color: var(--text-body); margin-top: 0.5rem;">Local Emergency Outbox</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="split-content" style="padding-left: 3rem;">
+                    <span class="badge anim-item" style="--delay: 0.1s">Architecture</span>
+                    <h2 class="anim-item" style="--delay: 0.2s">Modern Stack</h2>
+                    <p class="subtitle anim-item" style="--delay: 0.3s">Built on modern web primitives focusing on speed, reliability, and offline resilience.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Slide 7: Vision / Closing -->
+        <div class="slide">
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; max-width: 900px; margin: 0 auto;">
+                <span class="badge anim-item" style="--delay: 0.1s">The Vision</span>
+                <h2 class="anim-item" style="--delay: 0.2s; font-size: 2.8rem;">The Road Ahead</h2>
+                <p class="subtitle anim-item" style="--delay: 0.3s; font-size: 1.25rem; max-width: 100%; margin-top: 1rem;">
+                    Audio recording is already implemented. Next, we will replace synthetic risk data with validated local crime and public-safety datasets, and add video recording.
+                </p>
+                <div class="anim-item" style="--delay: 0.5s; margin-top: 3rem; padding-top: 2.5rem; border-top: 1px solid rgba(255,255,255,0.1); width: 100%;">
+                    <h1 class="gradient-title">Thank You!</h1>
+                    <p style="font-size: 1.2rem;">Team Friday is ready for your questions.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="prevBtn" disabled>←</button>
+            <span class="slide-counter" id="slideCounter">1 / 7</span>
+            <button id="nextBtn">→</button>
+        </div>
+    </div>
+
+    <script>
+        const slides = document.querySelectorAll('.slide');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const progressBar = document.getElementById('progressBar');
+        const slideCounter = document.getElementById('slideCounter');
+        const demoVideo = document.getElementById('demoVideo');
+
+        let currentSlide = 0;
+
+        function updateSlider() {
+            slides.forEach((slide, index) => {
+                slide.classList.remove('active', 'previous');
+                if (index === currentSlide) slide.classList.add('active');
+                else if (index < currentSlide) slide.classList.add('previous');
+            });
+
+            prevBtn.disabled = currentSlide === 0;
+            nextBtn.disabled = currentSlide === slides.length - 1;
+
+            slideCounter.textContent = `${currentSlide + 1} / ${slides.length}`;
+            progressBar.style.width = ((currentSlide + 1) / slides.length) * 100 + '%';
+
+            if (currentSlide !== 3 && demoVideo) demoVideo.pause();
+        }
+
+        function goNext() { if (currentSlide < slides.length - 1) { currentSlide++; updateSlider(); } }
+        function goPrev() { if (currentSlide > 0) { currentSlide--; updateSlider(); } }
+
+        prevBtn.addEventListener('click', goPrev);
+        nextBtn.addEventListener('click', goNext);
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight') goNext();
+            else if (e.key === 'ArrowLeft') goPrev();
+            else if (e.key === ' ' && currentSlide !== 3) { e.preventDefault(); goNext(); }
+        });
+
+        updateSlider();
+    </script>
+</body>
+</html>
